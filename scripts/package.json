@@ -1,0 +1,13 @@
+{
+  "name": "opus-visual-motion-engine-scripts",
+  "private": true,
+  "type": "module",
+  "description": "QA + export tooling for the opus-visual-motion-engine skill",
+  "scripts": {
+    "qa": "node qa.mjs",
+    "export": "node export.mjs"
+  },
+  "dependencies": {
+    "playwright": "1.63.0"
+  }
+}

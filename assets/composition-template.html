@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Composition title</title>
+<!--
+  opus-visual-motion-engine :: assets/composition-template.html
+  Copy this file, keep the ENGINE block untouched, replace everything marked EDIT.
+  Contract: window.DURATION, window.seek(t), window.render(t). All state derives from t.
+  Preview: open in a browser (space = play/pause, ←/→ = ±0.5s, Home/End).
+  Capture: navigator.webdriver or ?capture → player hidden, autoplay off, frames 1:1.
+-->
+<style>
+  /* EDIT: 4–6 named tokens from the plan. Light layer first. */
+  :root {
+    --bg: #F7F6F2; --ink: #16181B; --ink-soft: #5B6168;
+    --accent: #0E7C6B;           /* one meaning, e.g. "signal" */
+    --display: Georgia, "Times New Roman", serif;
+    --text: system-ui, -apple-system, "Segoe UI", sans-serif;
+    --num: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) { --bg: #131517; --ink: #F1F0EC; --ink-soft: #A3A9B0; --accent: #3FB8A3; }
+  }
+  :root[data-theme="dark"] { --bg: #131517; --ink: #F1F0EC; --ink-soft: #A3A9B0; --accent: #3FB8A3; }
+
+  /* ENGINE: frame fitting — do not edit */
+  * { box-sizing: border-box; margin: 0; }
+  html, body { height: 100%; background: var(--bg); overflow: hidden; }
+  #viewport { position: fixed; inset: 0; display: grid; place-items: center; overflow: hidden;
+    padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
+  #frame { position: relative; flex: none; transform-origin: center; }
+  #stage { position: absolute; inset: 0; overflow: hidden; background: var(--bg); transform-origin: 50% 50%; }
+  .layer { position: absolute; inset: 0; }
+  #player { position: fixed; left: 0; right: 0; bottom: 0; height: 4px; background: color-mix(in srgb, var(--ink) 12%, transparent); cursor: pointer; }
+  #player i { display: block; height: 100%; width: 0; background: var(--ink-soft); }
+  .capture #player { display: none; }
+
+  /* EDIT: type roles from the plan (sizes are for the 1920×1080 stage) */
+  .display { font: 400 112px/1.06 var(--display); color: var(--ink); letter-spacing: -0.01em; }
+  .label   { font: 400 34px/1.4 var(--text); color: var(--ink-soft); }
+  .num     { font: 500 160px/1 var(--num); color: var(--accent); font-variant-numeric: tabular-nums; }
+</style>
+</head>
+<body>
+<div id="viewport"><div id="frame"><div id="stage">
+
+  <!-- EDIT: one .layer per scene, ids match SCENES keys -->
+  <section class="layer" id="s-hook" style="display:grid; place-items:center">
+    <div style="width:1320px">
+      <div class="display" id="hookText">One sentence the viewer keeps.</div>
+      <div class="label" id="hookSub" style="margin-top:28px">supporting line, sentence case</div>
+    </div>
+  </section>
+
+  <section class="layer" id="s-proof">
+    <svg width="1920" height="1080" viewBox="0 0 1920 1080" aria-hidden="true">
+      <!-- draw-on: pathLength="1" + stroke-dasharray="1" + dashoffset 1→0 -->
+      <path id="proofLine" d="M300 820 C 700 800, 900 560, 1620 300" pathLength="1"
+            stroke-dasharray="1" stroke-dashoffset="1"
+            fill="none" stroke="var(--accent)" stroke-width="8" stroke-linecap="round"/>
+    </svg>
+    <div style="position:absolute; left:300px; top:200px">
+      <div class="num" id="proofNum">0</div>
+      <div class="label" style="margin-top:16px">what the number means</div>
+    </div>
+  </section>
+
+</div></div></div>
+<div id="player" data-qa-ignore><i></i></div>
+
+<script>
+"use strict";
+/* ===================== ENGINE (do not edit) ===================== */
+const STAGE_W = 1920, STAGE_H = 1080;              // EDIT only for vertical (1080×1920) or square (1080×1080)
+const clamp01 = (x) => Math.min(Math.max(x, 0), 1);
+const lerp = (a, b, p) => a + (b - a) * p;
+/** progress 0→1 of t inside [start, end] (seconds) */
+const at = (t, start, end) => clamp01((t - start) / (end - start));
+const ease = {
+  linear: (p) => clamp01(p),
+  out: (p) => 1 - Math.pow(1 - clamp01(p), 3),
+  in: (p) => Math.pow(clamp01(p), 3),
+  inOut: (p) => { p = clamp01(p); return p < .5 ? 4 * p * p * p : 1 - Math.pow(-2 * p + 2, 3) / 2; },
+  backOut: (p, s = 1.7) => { p = clamp01(p) - 1; return 1 + (s + 1) * p * p * p + s * p * p; },
+};
+/** seeded PRNG — the only randomness allowed */
+function mulberry32(seed) { let a = seed >>> 0; return () => { a = (a + 0x6D2B79F5) | 0;
+  let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+  return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
+/** show a scene layer with an EXIT fade after `end` (never leave a layer mid-state) */
+function layer(el, t, start, end, exit = 0.45) {
+  const o = t < start ? 0 : t < end ? 1 : 1 - clamp01((t - end) / exit);
+  el.style.opacity = o; el.style.visibility = o > 0 ? "visible" : "hidden";
+  return o;
+}
+const $ = (id) => document.getElementById(id);
+const frame = $("frame");
+frame.style.width = STAGE_W + "px"; frame.style.height = STAGE_H + "px";
+function fit() { const s = Math.min(innerWidth / STAGE_W, innerHeight / STAGE_H); frame.style.transform = s === 1 ? "" : `scale(${s})`; }
+addEventListener("resize", fit); fit();
+/* ================================================================ */
+
+/* ---------- EDIT: timeline (absolute seconds; sum = DURATION) ---------- */
+const DURATION = 8;
+// Each scene: [start, end]. The layer's EXIT (0.45s) runs after `end`; the next scene
+// starts only after that exit completes — scenes never share the frame mid-state.
+const SCENES = { hook: [0, 3.4], proof: [3.9, 8] };
+const L = { hook: $("s-hook"), proof: $("s-proof"), hookText: $("hookText"), hookSub: $("hookSub"),
+  line: $("proofLine"), num: $("proofNum"), stage: $("stage") };
+
+/* ---------- EDIT: the one render function — every property from t ---------- */
+function render(t) {
+  t = Math.min(Math.max(t, 0), DURATION);
+
+  layer(L.hook, t, 0, SCENES.hook[1]);
+  const h = ease.out(at(t, 0.1, 0.9));
+  L.hookText.style.opacity = h;
+  L.hookText.style.transform = `translateY(${24 * (1 - h)}px)`;
+  L.hookSub.style.opacity = ease.out(at(t, 0.8, 1.4));
+
+  layer(L.proof, t, SCENES.proof[0], DURATION);
+  L.stage.style.transform = `scale(${lerp(1, 1.04, ease.inOut(at(t, 4.4, 5.6)))})`;   // CAMERA, once
+  L.line.setAttribute("stroke-dashoffset", String(1 - ease.inOut(at(t, 4.0, 5.8))));
+  L.num.textContent = Math.round(12403 * ease.out(at(t, 4.1, 4.9))).toLocaleString("en-US");
+}
+
+/* ===================== ENGINE: player + contract (do not edit) ===================== */
+const CAPTURE = navigator.webdriver || /[?&]capture\b/.test(location.search);
+if (CAPTURE) document.documentElement.classList.add("capture");
+let clock = 0, playing = false, last = null;
+const bar = document.querySelector("#player i");
+function ui() { bar.style.width = (100 * clock / DURATION) + "%"; }
+function tick(now) {
+  if (!playing) { last = null; return; }
+  if (last !== null) clock = (clock + (now - last) / 1000) % DURATION;   // clock only; render owns state
+  last = now; render(clock); ui(); requestAnimationFrame(tick);
+}
+function play() { if (!playing) { playing = true; requestAnimationFrame(tick); } }
+function pause() { playing = false; }
+window.DURATION = DURATION;
+window.render = render;
+window.seek = (t) => { pause(); clock = Math.min(Math.max(Number(t) || 0, 0), DURATION); render(clock); ui(); };
+addEventListener("keydown", (e) => {
+  if (e.code === "Space") { e.preventDefault(); playing ? pause() : play(); }
+  if (e.key === "ArrowRight") window.seek(clock + 0.5);
+  if (e.key === "ArrowLeft") window.seek(clock - 0.5);
+  if (e.key === "Home") window.seek(0);
+  if (e.key === "End") window.seek(DURATION);
+});
+$("player").addEventListener("click", (e) => window.seek(DURATION * e.clientX / innerWidth));
+const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
+window.seek(reduced ? DURATION : 0);                 // reduced motion → settled end frame
+if (!CAPTURE && !reduced) play();
+</script>
+</body>
+</html>

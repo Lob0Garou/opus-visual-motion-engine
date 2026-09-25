@@ -1,0 +1,6 @@
+node_modules/
+qa-*/
+*.mp4
+*.webm
+*.gif
+*-frames/

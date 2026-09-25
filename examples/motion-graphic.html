@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Signal, not noise — motion graphic</title>
+<!--
+  opus-visual-motion-engine :: examples/motion-graphic.html
+  Direction: "Editorial Instrument" — paper #FAFAF7, ink #191C1F,
+  coral #E8593C = noise/problem, teal #0E7C6B = signal/insight.
+  Serif display (Georgia) + system sans body + mono numerals.
+  Deterministic: every state derives from render(t); no timers; seeded rng.
+  Timeline (DURATION 14s):
+    s1 hook    0.0–2.6  headline word-by-word (stagger 90ms)
+    s2 flood   2.6–6.2  coral dots flood into container
+    s3 signal  6.2–10.2 camera push 1→1.05, teal line draws, count-up
+    s4 close  10.2–14.0 lockup + underline draw
+-->
+<style>
+  :root {
+    --paper: #FAFAF7; --ink: #191C1F;
+    --noise: #E8593C; --signal: #0E7C6B;
+    --ink-soft: rgba(25, 28, 31, .62);
+    --serif: Georgia, "Times New Roman", serif;
+    --sans: system-ui, -apple-system, "Segoe UI", sans-serif;
+    --mono: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  }
+  * { box-sizing: border-box; margin: 0; }
+  html, body { height: 100%; background: var(--paper); }
+  #viewport { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+  #stage { position: relative; width: 1920px; height: 1080px; background: var(--paper); transform-origin: center; }
+  .layer { position: absolute; inset: 0; }
+  svg { overflow: visible; }
+  .cap { font: 500 22px/1 var(--mono); color: var(--ink-soft); letter-spacing: .02em; }
+  .h1 { font: 400 108px/1.08 var(--serif); color: var(--ink); }
+  .h1 em { font-style: italic; color: var(--noise); }
+  .lock { font: 400 128px/1.06 var(--serif); color: var(--ink); }
+  .num { font: 500 150px/1 var(--mono); color: var(--signal); font-variant-numeric: tabular-nums; }
+  .lbl { font: 400 34px/1.4 var(--sans); color: var(--ink-soft); }
+  @media (prefers-color-scheme: dark) {
+    :root { --paper: #14171A; --ink: #F2F1EC; --ink-soft: rgba(242, 241, 236, .6); }
+  }
+</style>
+</head>
+<body>
+<div id="viewport"><div id="stage">
+  <!-- s2 flood: container + coral dot field -->
+  <div class="layer" id="flood">
+    <svg width="1920" height="1080" viewBox="0 0 1920 1080">
+      <rect id="bin" x="360" y="360" width="1200" height="420" rx="24"
+            fill="none" stroke="var(--ink)" stroke-width="1" opacity=".35"/>
+      <g id="dots"></g>
+    </svg>
+    <div class="cap" id="floodCap" style="position:absolute; left:360px; top:812px">step 01 &nbsp; every event the product emits</div>
+  </div>
+  <!-- s1 hook -->
+  <div class="layer" id="hook" style="display:flex; align-items:center; justify-content:center">
+    <div style="width:1280px">
+      <div class="h1" id="hookText"></div>
+      <div class="lbl" id="hookSub" style="margin-top:28px">a motion-graphics engine demo — fully deterministic</div>
+    </div>
+  </div>
+  <!-- s3 signal: rising line + count-up -->
+  <div class="layer" id="signal">
+    <svg width="1920" height="1080" viewBox="0 0 1920 1080">
+      <line x1="380" y1="846" x2="1720" y2="846" stroke="var(--ink)" stroke-width="1" opacity=".14"/>
+      <polyline id="rise" pathLength="1" points="400,840 680,780 960,690 1240,620 1480,450 1700,320"
+                fill="none" stroke="var(--signal)" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+      <g id="riseDots"></g>
+    </svg>
+    <div style="position:absolute; left:400px; top:220px">
+      <div class="num" id="count">0</div>
+      <div class="lbl" id="countLbl" style="margin-top:14px">insights surfaced per day, once the noise is filtered</div>
+    </div>
+  </div>
+  <!-- s4 close: lockup -->
+  <div class="layer" id="close" style="display:flex; align-items:center; justify-content:center; flex-direction:column">
+    <div class="lock">Signal, <em style="color:var(--signal); font-style:italic">not noise.</em></div>
+    <svg width="640" height="20" style="margin-top:36px"><line id="rule" x1="0" y1="10" x2="640" y2="10" stroke="var(--ink)" stroke-width="2" pathLength="1"/></svg>
+    <div class="cap" style="margin-top:26px">flowstate.ing</div>
+  </div>
+</div></div>
+<script>
+"use strict";
+/* ---------- deterministic helpers (seeded — same frame at same t) ---------- */
+function mulberry32(seed){ let a = seed >>> 0; return function(){ a |= 0; a = (a + 0x6D2B79F5) | 0;
+  let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+  return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
+const rnd = mulberry32(20240601);
+const clamp01 = t => Math.min(Math.max(t, 0), 1);
+const easeOut = t => 1 - Math.pow(1 - clamp01(t), 3);
+const easeInOut = t => { t = clamp01(t); return t < .5 ? 4*t*t*t : 1 - Math.pow(-2*t + 2, 3) / 2; };
+/* progress of t inside [start,end] */
+function at(t, start, end){ return clamp01((t - start) / (end - start)); }
+
+/* ---------- timeline (absolute) ---------- */
+const DURATION = 14;
+window.DURATION = DURATION;
+const SCENES = { hook: [0, 2.6], flood: [2.6, 6.2], signal: [6.2, 10.2], close: [10.2, 14] };
+
+/* ---------- build static content ---------- */
+const hookWords = ["Your", "product", "talks", "all", "day."];
+const hookEl = document.getElementById("hookText");
+hookWords.forEach((w, i) => {
+  const s = document.createElement("span");
+  s.style.display = "inline-block";
+  s.style.opacity = "0";
+  s.style.transform = "translateY(18px)";
+  if (i < hookWords.length - 1) s.style.marginRight = "0.26em";
+  if (w === "all") { s.innerHTML = "<em>all</em>"; } else { s.textContent = w; }
+  hookEl.appendChild(s);
+});
+const gDots = document.getElementById("dots");
+const DOT_N = 64; const dotXs = []; const dotYs = [];
+for (let i = 0; i < DOT_N; i++) {
+  const c = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+  const x = 60 + rnd() * 240;                    // off-screen left, floods in
+  const y = 380 + rnd() * 380;
+  const r = 4 + rnd() * 5;
+  dotXs.push(x); dotYs.push(y);
+  c.setAttribute("cx", x); c.setAttribute("cy", y); c.setAttribute("r", r);
+  c.setAttribute("fill", "var(--noise)");
+  c.setAttribute("opacity", "0");
+  gDots.appendChild(c);
+}
+const gRise = document.getElementById("riseDots");
+for (let i = 0; i < 6; i++) {
+  const c = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+  const p = document.getElementById("rise").points.getItem(i);
+  c.setAttribute("cx", p.x); c.setAttribute("cy", p.y); c.setAttribute("r", "9");
+  c.setAttribute("fill", "var(--signal)");
+  c.setAttribute("opacity", "0");
+  gRise.appendChild(c);
+}
+const L = {
+  hook: document.getElementById("hook"), flood: document.getElementById("flood"),
+  signal: document.getElementById("signal"), close: document.getElementById("close"),
+  bin: document.getElementById("bin"), floodCap: document.getElementById("floodCap"),
+  rise: document.getElementById("rise"), count: document.getElementById("count"),
+  countLbl: document.getElementById("countLbl"), rule: document.getElementById("rule"),
+  hookSub: document.getElementById("hookSub"), stage: document.getElementById("stage"),
+  hookSpans: hookEl.children,
+};
+
+/* ---------- the one render function ---------- */
+function render(t) {
+  t = Math.min(Math.max(t, 0), DURATION);
+  /* stage camera: push-in during s3 only */
+  const push = 1 + 0.05 * easeInOut(at(t, 6.2, 8.2));
+  L.stage.style.transform = `scale(${push})`;
+
+  /* s1 hook: word-by-word stagger 90ms [plan] */
+  const hookP = at(t, 0, 2.6);
+  for (let i = 0; i < L.hookSpans.length; i++) {
+    const p = easeOut(at(t, 0.15 + i * 0.09, 0.95 + i * 0.09));
+    const s = L.hookSpans[i];
+    s.style.opacity = p;
+    s.style.transform = `translateY(${18 * (1 - p)}px)`;
+  }
+  L.hookSub.style.opacity = easeOut(at(t, 1.5, 2.1));
+  L.hook.style.opacity = t < 2.6 ? 1 : 1 - clamp01((t - 2.6) / 0.45);   /* exit 0.45s */
+  L.hook.style.visibility = t < 3.06 ? "visible" : "hidden";
+
+  /* s2 flood: dots stagger in from left, container draws */
+  const floodP = at(t, 2.6, 6.2);
+  L.flood.style.opacity = t < 2.6 ? 0 : (t < 6.2 ? 1 : 1 - clamp01((t - 6.2) / 0.45));
+  L.flood.style.visibility = (t >= 2.6 && t < 6.66) ? "visible" : "hidden";
+  L.bin.setAttribute("stroke-dasharray", "1");
+  L.bin.setAttribute("pathLength", "1");
+  L.bin.setAttribute("stroke-dashoffset", String(1 - easeInOut(at(t, 2.7, 3.5))));
+  for (let i = 0; i < DOT_N; i++) {
+    const p = easeOut(at(t, 3.0 + i * 0.045, 3.9 + i * 0.045));
+    const c = gDots.children[i];
+    const x = dotXs[i] + (Math.max(0, 400 + (i % 16) * 71) - dotXs[i]) * p;
+    c.setAttribute("cx", x);
+    c.setAttribute("opacity", String(p * 0.92));
+    c.setAttribute("cy", dotYs[i]);
+  }
+  L.floodCap.style.opacity = easeOut(at(t, 3.2, 3.8));
+
+  /* s3 signal: line draws, nodes pop, count-up */
+  L.signal.style.opacity = t < 6.2 ? 0 : (t < 10.2 ? 1 : 1 - clamp01((t - 10.2) / 0.55)); /* exit 0.55s */
+  L.signal.style.visibility = (t >= 6.2 && t < 10.76) ? "visible" : "hidden";
+  L.rise.setAttribute("stroke-dashoffset", String(1 - easeInOut(at(t, 6.4, 8.6))));
+  for (let i = 0; i < 6; i++) {
+    const p = easeOut(at(t, 6.7 + i * 0.38, 7.0 + i * 0.38));
+    gRise.children[i].setAttribute("opacity", String(p));
+    gRise.children[i].setAttribute("r", String(9 * (0.6 + 0.4 * p)));
+  }
+  const target = 12403;
+  const cp = easeOut(at(t, 6.5, 7.6));
+  L.count.textContent = Math.round(target * cp).toLocaleString("en-US");
+  L.countLbl.style.opacity = easeOut(at(t, 7.4, 8.0));
+  /* coral dots recede to ghost while the signal rises */
+  if (t >= 6.2) for (let i = 0; i < DOT_N; i++) gDots.children[i].setAttribute("opacity", "0");
+
+  /* s4 close: lockup enters after the signal exit clears the frame */
+  L.close.style.opacity = t < 10.4 ? 0 : 1;
+  L.close.style.visibility = t >= 10.4 ? "visible" : "hidden";
+  const lockP = easeOut(at(t, 10.7, 11.6));
+  L.close.children[0].style.opacity = String(lockP);
+  L.close.children[0].style.transform = `translateY(${16 * (1 - lockP)}px)`;
+  L.rule.setAttribute("stroke-dashoffset", String(1 - easeInOut(at(t, 11.4, 12.3))));
+  L.close.children[2].style.opacity = easeOut(at(t, 12.2, 12.8));
+
+  /* final settle: last 0.3s fully at rest (no mid-state at 100%) */
+}
+window.seek = (t) => render(t);
+window.addEventListener("load", () => render(0));
+</script>
+</body>
+</html>
