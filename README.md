@@ -11,12 +11,13 @@ It was built by reverse-engineering *why* frontier models produce good visuals. 
 | Path | What it does |
 |---|---|
 | `SKILL.md` | the pipeline the agent follows (plan, deterministic time, motion grammar, anti-template table, technical floor, QA, critique, export) |
-| `references/` | 7 topic references: motion design, JS animation, timing and easing, typography, visual design, cinematography, video pipeline |
+| `references/` | 8 topic references: **reel craft** (the quality bar for timed pieces), motion design, JS animation, timing and easing, typography, visual design, cinematography, video pipeline |
 | `assets/composition-template.html` | a correct starting point: 1920×1080 stage fitted to any window, `seek(t)`/`DURATION` contract, seeded PRNG, easing helpers, a preview player that turns off during capture, dark-mode tokens |
 | `scripts/qa.mjs` | headless render + automated critique; writes a contact sheet, key frames, `report.md` and `report.json`; exits 1 on any FAIL |
 | `scripts/export.mjs` | frame-exact export via ffmpeg to `.mp4` / `.webm` / `.gif`, with optional `--audio` |
+| `scripts/score.mjs` | composes an original score + sound effects from a cue sheet embedded in the composition (same timestamps as `render(t)`), deterministic, mastered to −14 LUFS / ≤ −1 dBTP |
 | `scripts/audio-data.mjs` | turns music or voice into `window.AUDIO` (beat grid, onsets, per-frame loudness, kick band), so motion syncs to sound frame-exactly; checks clipping, peak and LUFS |
-| `examples/` | worked briefs and plans (landing page, product video, kinetic type, motion graphic) |
+| `examples/` | worked briefs and plans, plus `brand-reel.html`: an executable 15 s reference reel (7 scenes, 6 designed handoffs, a persistent chart world, a diegetic HUD, a score cue sheet) that passes QA with 0 WARN |
 
 ### What `qa.mjs` catches
 
@@ -24,7 +25,9 @@ It was built by reverse-engineering *why* frontier models produce good visuals. 
 - frozen timeline, dead air and near-empty frames
 - non-determinism (frames revisited out of order must match)
 - unsettled end frame
-- text collisions, text over other graphics, and clipping
+- text collisions (measured on glyph ink, after masks and `clip-path`), text over other graphics, and clipping (text inside a moving camera may leave the frame)
+- every cut: `handoffs.png` (last frame before / first after), cuts through an empty frame, gaps between scenes, declared match/iris cuts that don't match
+- draw-ons that snap instead of drawing (`dash-snap`)
 - contrast and minimum type size
 - SVG lines whose draw-on never happens (`stroke-dashoffset` without `stroke-dasharray`)
 - timer APIs, reduced-motion loops, console errors
@@ -62,7 +65,8 @@ The agent writes a `PLAN.md` (beats, scene cards, a signature moment, an absolut
 
 ```bash
 node scripts/qa.mjs composition.html            # repeat until exit 0
-node scripts/export.mjs composition.html --out out.mp4 --fps 30
+node scripts/score.mjs composition.html --out score.m4a  # when no music is supplied
+node scripts/export.mjs composition.html --out out.mp4 --fps 30 --audio score.m4a
 ```
 
 ## Benchmark
@@ -86,6 +90,13 @@ Caveats:
 - Token counts come from the harness's own session logs (`usage` per assistant message).
 
 ## Changelog
+
+- **v3.0** — reel-level quality, distilled from a reference showreel (see `examples/brand-reel.md`)
+  - `references/reel-craft.md`: gather the subject's real material first (official logo SVG, brand hex, real UI and numbers); a thesis line + a persistent device + a register switch; persistent worlds with a camera; every cut a designed handoff (match, push, iris, morph, collapse) instead of fade-to-empty; one technique per scene; sound is part of the deliverable; pixel-determinism traps.
+  - `scripts/score.mjs`: original, deterministic score and SFX from a cue sheet.
+  - `qa.mjs`: handoff checks and sheet, `dash-snap`, camera-aware clipping, mask/clip-path-aware text, glyph-ink collisions, template tells counted on visible elements only.
+  - Template: `camera`, `cut`, `tw`, `nudge`, `hash01`, more easings, `window.HANDOFFS`, a score block, glyph preload, a push-handoff demo.
+  - Fix: `audio-data.mjs` counted clipping on the mono downmix (false positives on stereo masters at −1 dBTP).
 
 - **v1.1**
   - Audio sync: `audio-data.mjs` plus template helpers `audioAt`, `since` and `hit`.
