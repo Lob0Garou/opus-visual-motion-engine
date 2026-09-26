@@ -28,6 +28,8 @@ const clamp01 = t => Math.min(Math.max(t, 0), 1);
 const pulse = (t, freq) => 1 + 0.2 * Math.sin(2*Math.PI*freq*t); // scale 0.8..1.2 family
 ```
 
+The template's `ease` object adds the curves a reel needs: `quartOut` (hard slam), `expoOut` (whip, snap, pull-back out of a cut), `in` / `quadIn` (accelerate INTO a cut), `sineInOut` (ambient breathing), `steps(p, n)` (typewriter and digital reveals), and `nudge(p)`: slow-fast-slow for a group move (ramp 10% of the distance in 20% of the time, linear burst 65% in 18%, long tail 25% in 62%; no single built-in ease does this). GSAP names map by degree: `power1` = quad, `power2` = cubic, `power3` = quart, `power4` = quint.
+
 ## 2. Duration map (corpus-anchored)
 
 | Motion | Duration | Source |
@@ -42,7 +44,11 @@ const pulse = (t, freq) => 1 + 0.2 * Math.sin(2*Math.PI*freq*t); // scale 0.8..1
 | ENTER stagger | 60–120ms between siblings | [X] |
 | EXIT | 0.3–0.5s | [X] |
 | camera push | 0.8–1.2s | [X] |
-| count-up | ≤0.8s | [X] |
+| count-up | ≤0.8s (a hero number may take 1.0s while it grows in scale) | [X] |
+| push into a cut | 0.6–1.3s, ease-in, blur peaking on the cut | [R] |
+| pull out of a cut | 0.9s expo-out | [R] |
+| settle-hold before an exit | ≥0.4s (shapes), reading time (text) | [R] |
+| group move (nudge) | 0.6–0.8s per member, stagger 0.07s | [R] |
 
 ## 3. Primitives (each = one visual verb)
 

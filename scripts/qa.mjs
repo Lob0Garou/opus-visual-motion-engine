@@ -6,6 +6,13 @@
 // Moments: if the page exposes window.SCENES ({name:[start,end]} or [{name,start,end}]), each scene is
 // also captured on entry, middle and end (moments.png); --at adds exact times (e.g. the signature moment).
 // Mark deliberate layering with data-qa-allow-overlap on an ancestor (skips collision/over-graphics).
+// Text inside a camera (.world or [data-qa-camera]) whose transform is not identity may leave the
+// frame (push-through / fly-through) without a clipping FAIL. A diegetic HUD ([data-qa-hud]: timecode,
+// scene index, live clock) is still checked for contrast and size but not counted as template chrome.
+// Handoffs: every cut in window.HANDOFFS ([{t, type, via}]; else the SCENES boundaries) is captured on
+// its last-before / first-after frame (handoffs.png) and checked for empty dips and broken matches.
+// Draw-ons: any stroke-dashoffset that jumps between grid frames is re-sampled in between; a draw that
+// never takes an intermediate value (e.g. GSAP autoRound on pathLength="1" units) is reported.
 //
 // Video mode (window.DURATION + window.seek present): captures a step grid via seek(t),
 // checks determinism, frozen timeline, dead air, empty frames, unsettled end, text
@@ -78,6 +85,7 @@ function probePage() {
   const parse = (c) => { const m = c && c.match(/rgba?\(([^)]+)\)/); if (!m) return null;
     const p = m[1].split(/[ ,/]+/).filter(Boolean).map(Number); return [p[0], p[1], p[2], p[3] ?? 1]; };
   let i = 0;
+  const inkCtx = document.createElement('canvas').getContext('2d');
   while (walker.nextNode()) {
     const n = walker.currentNode;
     const txt = n.nodeValue.replace(/\s+/g, ' ').trim();
@@ -88,15 +96,45 @@ function probePage() {
     if (op < 0.1) continue;
     const s = getComputedStyle(el);
     const range = document.createRange(); range.selectNodeContents(n);
-    const rects = [...range.getClientRects()].filter(r => r.width >= 2 && r.height >= 2)
+    let rects = [...range.getClientRects()].filter(r => r.width >= 2 && r.height >= 2)
       .map(r => ({ x: r.left, y: r.top, w: r.width, h: r.height }));
+    // glyph ink, not the font box: display faces carry ascent/descent far beyond the letters, so tightly
+    // stacked headlines would "collide" on their boxes while the ink never touches
+    if (!(el instanceof SVGElement) && inkCtx) {
+      inkCtx.font = `${s.fontStyle} ${s.fontWeight} ${s.fontSize} ${s.fontFamily}`;
+      const m = inkCtx.measureText(txt), fa = m.fontBoundingBoxAscent, fd = m.fontBoundingBoxDescent;
+      if (fa + fd > 0 && Number.isFinite(m.actualBoundingBoxAscent)) rects = rects.map(r => {
+        const k = r.h / (fa + fd), top = r.y + (fa - m.actualBoundingBoxAscent) * k, bot = r.y + (fa + m.actualBoundingBoxDescent) * k;
+        return { x: r.x, y: top, w: r.w, h: Math.max(2, bot - top) }; });
+    }
+    // what the viewer sees: intersect with every clipping ancestor (overflow mask, clip-path inset)
+    for (let a = el; a && a !== document.body && rects.length; a = a.parentElement) {
+      const cs = getComputedStyle(a);
+      let clip = null;
+      if (/hidden|clip/.test(cs.overflowX + cs.overflowY) && a.id !== 'viewport') { const b = a.getBoundingClientRect(); clip = [b.left, b.top, b.right, b.bottom]; }
+      const m = cs.clipPath && cs.clipPath.match(/^inset\(([^)]*)\)/);
+      if (m) {
+        const b = a.getBoundingClientRect();
+        const v = m[1].split(/\s+round\s+/)[0].trim().split(/\s+/).map((x, k) => { const pct = x.endsWith('%'); const n = parseFloat(x) || 0;
+          return pct ? n / 100 * ((k % 2 === 0) ? b.height : b.width) : n; });
+        const [T, R, B, L] = [v[0], v[1] ?? v[0], v[2] ?? v[0], v[3] ?? v[1] ?? v[0]];
+        const c2 = [b.left + L, b.top + T, b.right - R, b.bottom - B];
+        clip = clip ? [Math.max(clip[0], c2[0]), Math.max(clip[1], c2[1]), Math.min(clip[2], c2[2]), Math.min(clip[3], c2[3])] : c2;
+      }
+      if (!clip) continue;
+      rects = rects.map(r => { const x0 = Math.max(r.x, clip[0]), y0 = Math.max(r.y, clip[1]), x1 = Math.min(r.x + r.w, clip[2]), y1 = Math.min(r.y + r.h, clip[3]);
+        return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 }; }).filter(r => r.w >= 2 && r.h >= 2);
+    }
     if (!rects.length) continue;
     const isSvg = el instanceof SVGElement;
     const color = parse(isSvg ? (s.fill && s.fill !== 'none' ? s.fill : s.color) : s.color);
     // SVG text font-size is in user units; convert with the element's screen CTM scale
     let size = parseFloat(s.fontSize);
     if (isSvg && el.getScreenCTM) { const m = el.getScreenCTM(); if (m) size *= Math.hypot(m.a, m.b); }
-    texts.push({ id: i++, text: txt.slice(0, 48), rects, color, size, weight: s.fontWeight,
+    const camEl = el.closest('.world,[data-qa-camera]');
+    const camTf = camEl ? getComputedStyle(camEl).transform : 'none';
+    const inCamera = !!camEl && camTf !== 'none' && !/^matrix\(1, 0, 0, 1, 0, 0\)$/.test(camTf);
+    texts.push({ id: i++, text: txt.slice(0, 48), rects, color, size, weight: s.fontWeight, inCamera, hud: !!el.closest('[data-qa-hud]'),
       family: s.fontFamily.split(',')[0].replace(/["']/g, '').trim(), op,
       upperTracked: s.textTransform === 'uppercase' && parseFloat(s.letterSpacing) >= 0.05 * parseFloat(s.fontSize),
       tag: el.tagName.toLowerCase(), inLink: !!el.closest('a,button'), allowOverlap: !!el.closest('[data-qa-allow-overlap]') });
@@ -104,10 +142,17 @@ function probePage() {
   // template tells
   const all = [...document.querySelectorAll('body *')];
   let gradients = 0; const radii = {}; const shadows = {};
+  const smooth = (bg) => (bg.match(/(?:radial|linear|conic)-gradient\((?:[^()]|\([^()]*\))*\)/g) || []).filter(g => {
+    if (/^repeating-/.test(g)) return false;
+    const stops = [...g.matchAll(/(rgba?\([^)]*\)|#[0-9a-f]{3,8}|transparent)\s*([\d.]+(?:px|%))?/gi)].map(x => x[2]);
+    for (let k = 1; k < stops.length; k++) if (stops[k] && stops[k] === stops[k - 1]) return false;   // hard stop = a pattern
+    return true; }).length;
+  const seenGrad = new Set();
   for (const el of all) {
     const s = getComputedStyle(el);
     if (s.display === 'none') continue;
-    if (/gradient\(/.test(s.backgroundImage)) gradients++;
+    if (el.checkVisibility && !el.checkVisibility({ opacityProperty: true, visibilityProperty: true })) continue;
+    if (/gradient\(/.test(s.backgroundImage) && !/repeating-/.test(s.backgroundImage) && smooth(s.backgroundImage) && !seenGrad.has(s.backgroundImage)) { seenGrad.add(s.backgroundImage); gradients++; }
     const r = s.borderTopLeftRadius; if (r && r !== '0px') radii[r] = (radii[r] || 0) + 1;
     const sh = s.boxShadow; if (sh && sh !== 'none') shadows[sh] = (shadows[sh] || 0) + 1;
   }
@@ -123,10 +168,21 @@ function probePage() {
   const wOf = (f) => { cv.font = '40px ' + f; return cv.measureText('Hamburgefonstiv 0123456789 WMwm').width; };
   const missingFonts = [...new Set(texts.map(t => t.family))].filter(f => f && !GENERIC.test(f) &&
     wOf(`"${f}", monospace`) === wOf('monospace') && wOf(`"${f}", serif`) === wOf('serif'));
+  // numeric dash offsets of every element that has a dasharray (index-keyed; DOM order is static)
+  const dashes = {};
+  [...document.querySelectorAll('svg *')].forEach((e, k) => {
+    const cs = getComputedStyle(e);
+    if (!cs.strokeDasharray || cs.strokeDasharray === 'none') return;
+    if (e.checkVisibility && !e.checkVisibility({ opacityProperty: true, visibilityProperty: true })) return;
+    const v = parseFloat(cs.strokeDashoffset); if (!Number.isFinite(v)) return;
+    dashes[k] = { v, name: e.tagName.toLowerCase() + (e.id ? '#' + e.id : `[${k}]`) };
+  });
+  const camActive = [...document.querySelectorAll('.world,[data-qa-camera]')].some(w => { const tf = getComputedStyle(w).transform;
+    return w.checkVisibility && w.checkVisibility({ opacityProperty: true, visibilityProperty: true }) && tf !== 'none' && !/^matrix\(1, 0, 0, 1, 0, 0\)$/.test(tf); });
   const bodyBg = parse(getComputedStyle(document.body).backgroundColor);
   const htmlBg = parse(getComputedStyle(document.documentElement).backgroundColor);
   const stage = document.querySelector('#stage');
-  return { texts, gradients, radii, shadows, bodyBg, htmlBg, deadDash, missingFonts,
+  return { texts, gradients, radii, shadows, bodyBg, htmlBg, deadDash, missingFonts, dashes, camActive,
     docW: document.documentElement.scrollWidth, vw: innerWidth,
     stage: stage ? { w: stage.offsetWidth, h: stage.offsetHeight } : null,
     wide: [...document.querySelectorAll('body *')].filter(e => e.getBoundingClientRect().right > innerWidth + 1)
@@ -244,12 +300,14 @@ function layoutRules(probe, checks, at, ctx) {
   // collisions
   for (let i = 0; i < T.length; i++) for (let j = i + 1; j < T.length; j++) {
     if (T[i].allowOverlap || T[j].allowOverlap) continue;
+    if (T[i].inCamera || T[j].inCamera) continue;                 // world text passing under chrome mid-camera-move is transient
     if (T[i].op >= 0.3 && T[j].op >= 0.3 && rectsOverlap(T[i].rects, T[j].rects) > 0.2)
       once('FAIL', 'text-collision', `"${T[i].text}" overlaps "${T[j].text}"`, at);
   }
   // clipping
   for (const t of T) for (const r of t.rects) {
     if (r.x < -4 || r.y < -4 || r.x + r.w > ctx.W + 4 || (ctx.clipY && r.y + r.h > ctx.H + 4)) {
+      if (t.inCamera) { once('INFO', 'camera', 'text leaves the frame under a camera move (allowed for a push-through / fly-through; it must rest inside the frame when the camera is at rest)'); break; }
       once('FAIL', 'clipped', `"${t.text}" extends outside the frame`, at); break;
     }
   }
@@ -265,14 +323,15 @@ function layoutRules(probe, checks, at, ctx) {
     const t = byId.get(c.id); if (!t) continue;
     const large = t.size >= 24 || (t.size >= 18.66 && Number(t.weight) >= 700);
     const need = large ? 3 : 4.5;
-    if (c.contrast < need)
+    const passing = probe.camActive && (t.hud || t.inCamera);   // content sweeping behind a HUD during a camera move
+    if (c.contrast < need && !(passing && c.contrast >= need - 1.5))
       once(c.contrast < need - 1.5 ? 'FAIL' : 'WARN', 'contrast', `"${t.text}" contrast ${c.contrast.toFixed(2)}:1 (need ${need}:1)${ctx.tag || ''}`, at);
-    if (c.clutter > 0.14 && !t.allowOverlap)
+    if (c.clutter > 0.14 && !t.allowOverlap && !passing)
       once('WARN', 'text-over-graphics', `"${t.text}" sits on other graphics (${Math.round(c.clutter * 100)}% foreign pixels)${ctx.tag || ''}`, at);
   }
 }
 function templateRules(probe) {
-  const T = probe.texts;
+  const T = probe.texts.filter(t => !t.hud);        // a diegetic HUD reports live state; it is not template chrome
   const fams = {}; for (const t of T) fams[t.family] = (fams[t.family] || 0) + 1;
   const top = Object.entries(fams).sort((a, b) => b[1] - a[1])[0];
   if (top && /^inter$/i.test(top[0]) && top[1] / T.length > 0.5) once('WARN', 'ai-tell', 'Inter is the dominant family — choose type for this subject');
@@ -342,7 +401,7 @@ if (mode === 'video') {
       layoutRules(probe, checks, t, { W, H, minSize, clipY: true });
       if (t === D / 2 || Math.abs(t - D / 2) < STEP / 2) templateRules(probe);
       report.frames.push({ t, coverage: +stats.coverage.toFixed(4), diff: stats.diff == null ? null : +stats.diff.toFixed(4), texts: probe.texts.length });
-      shots.push({ t, b64 });
+      shots.push({ t, b64, dashes: probe.dashes });
       prev = b64;
     }
     // frozen / dead air / empty / settle
@@ -382,6 +441,66 @@ if (mode === 'video') {
     if ((await analyzer.frameStats(c0, shots[0].b64)).diff > 0.001) add('WARN', 'contract', 'seek(-1) ≠ seek(0) — clamp t inside seek()');
     await seekTo(page, D + 5); const c1 = (await page.screenshot()).toString('base64');
     if ((await analyzer.frameStats(c1, shots[shots.length - 1].b64)).diff > 0.001) add('WARN', 'contract', 'seek(D+5) ≠ seek(D) — clamp t inside seek()');
+    // handoffs: last frame before / first frame after every cut
+    const cuts = await page.evaluate(() => {
+      const H = Array.isArray(window.HANDOFFS) ? window.HANDOFFS.filter(h => Number.isFinite(h.t)).map(h => ({ t: h.t, type: String(h.type || 'cut'), via: String(h.via || '') })) : [];
+      const S = window.SCENES, list = !S ? [] : Array.isArray(S) ? S.map(s => [s.name, s.start, s.end]) : Object.entries(S).map(([k, v]) => [k, v[0], v[1]]);
+      list.sort((a, b) => a[1] - b[1]);
+      const gaps = []; for (let i = 1; i < list.length; i++) if (list[i][1] - list[i - 1][2] > 0.1) gaps.push([list[i - 1][2], list[i][1]]);
+      return { declared: H, bounds: list.slice(1).map(s => s[1]), gaps, scenes: list.length };
+    });
+    const hand = cuts.declared.length ? cuts.declared : cuts.bounds.map(t => ({ t, type: 'undeclared', via: '' }));
+    if (cuts.scenes > 1 && !cuts.declared.length) add('INFO', 'handoffs', 'window.HANDOFFS not declared — every cut should name its type (match | push | iris | morph | collapse | cut | dip) and the object that carries it');
+    for (const [a, b] of cuts.gaps) if (!hand.some(h => h.type === 'dip' && h.t >= a - 0.05 && h.t <= b + 0.05))
+      add('WARN', 'scene-gap', `no scene owns ${a}–${b}s — scenes should tile the timeline; hand the frame over instead of leaving a gap (declare a "dip" handoff if the pause is the point)`);
+    const hshots = []; report.handoffs = [];
+    for (const h of hand) {
+      if (h.t <= 0 || h.t >= D) continue;
+      const tb = Math.max(0, h.t - 1 / 30), ta = h.t;
+      await seekTo(page, tb); const bb = (await page.screenshot()).toString('base64');
+      await seekTo(page, ta); const ab = (await page.screenshot()).toString('base64');
+      const sa = await analyzer.frameStats(ab, bb), sb = await analyzer.frameStats(bb);
+      const around = [];
+      for (const dt of [-0.25, -0.12, 0.12, 0.25]) {
+        const tt = Math.min(D, Math.max(0, h.t + dt)); await seekTo(page, tt);
+        around.push((await analyzer.frameStats((await page.screenshot()).toString('base64'))).coverage);
+      }
+      const minCov = Math.min(sa.coverage, sb.coverage, ...around);
+      const rel = sa.diff / Math.max(0.004, sb.coverage, sa.coverage);    // change relative to the ink on screen
+      const bgGap = Math.abs(sa.bg[0] - sb.bg[0]) + Math.abs(sa.bg[1] - sb.bg[1]) + Math.abs(sa.bg[2] - sb.bg[2]);
+      report.handoffs.push({ t: h.t, type: h.type, via: h.via, diff: +sa.diff.toFixed(4), relDiff: +rel.toFixed(3), bgChange: bgGap, coverageBefore: +sb.coverage.toFixed(4), coverageAfter: +sa.coverage.toFixed(4), minCoverageAround: +minCov.toFixed(4) });
+      if (minCov < 0.004 && h.type !== 'dip')
+        add('WARN', 'empty-handoff', `cut at t=${h.t}s passes through an empty frame (exit → blank → enter reads as a slideshow) — carry the frame over with an object in motion, or declare type "dip" if the pause is the point`, h.t);
+      if (/^(match|morph)$/.test(h.type) && (sa.diff > 0.35 || rel > 0.6))
+        add('WARN', 'handoff-jump', `"${h.type}" cut at t=${h.t}s changes ${(sa.diff * 100).toFixed(0)}% of the frame (${(rel * 100).toFixed(0)}% of the ink on screen) — the carried object is not at the same place, size and colour on both sides`, h.t);
+      if (h.type === 'iris' && bgGap > 40)
+        add('WARN', 'handoff-jump', `"iris" cut at t=${h.t}s: the background changes across the cut — the object's interior should BE the next background`, h.t);
+      hshots.push({ t: tb, b64: bb, label: `${h.type} before` }, { t: ta, b64: ab, label: `${h.type} after` });
+    }
+    if (hshots.length) writeFileSync(path.join(outDir, 'handoffs.png'), Buffer.from(await analyzer.contactSheet(hshots, 4), 'base64'));
+    // draw-ons that snap: re-sample between grid frames where a dash offset changed
+    let snapChecks = 0;
+    const range = {};
+    for (const sh of shots) for (const [k, d] of Object.entries(sh.dashes || {})) { const r = range[k] || (range[k] = [d.v, d.v]); r[0] = Math.min(r[0], d.v); r[1] = Math.max(r[1], d.v); }
+    for (let i = 1; i < shots.length && snapChecks < 24; i++) {
+      const A = shots[i - 1].dashes || {}, B = shots[i].dashes || {};
+      for (const k of Object.keys(B)) {
+        if (!A[k]) continue;
+        const va = A[k].v, vb = B[k].v, span = Math.abs(vb - va);
+        if (span < Math.max(1e-3, 0.2 * (range[k][1] - range[k][0]))) continue;   // only the body of a draw, not its tail
+        snapChecks++;
+        const vals = [];
+        for (let f = 1 / 12; f < 0.999; f += 1 / 12) {
+          await seekTo(page, shots[i - 1].t + (shots[i].t - shots[i - 1].t) * f);
+          const v = await page.evaluate((k) => { const e = document.querySelectorAll('svg *')[k]; return e ? parseFloat(getComputedStyle(e).strokeDashoffset) : NaN; }, Number(k));
+          if (Number.isFinite(v)) vals.push(v);
+        }
+        const mid = vals.filter(v => Math.abs(v - va) > span * 0.05 && Math.abs(v - vb) > span * 0.05).length;
+        if (vals.length >= 8 && mid === 0)
+          once('WARN', 'dash-snap', `${B[k].name} jumps ${va}→${vb} between t=${shots[i - 1].t}s and t=${shots[i].t}s with no intermediate value — the draw-on snaps instead of drawing (tween a real length, or write the attribute yourself: GSAP rounds px values)`, shots[i].t);
+        if (snapChecks >= 24) break;
+      }
+    }
     // moments: scene entry / middle / end from window.SCENES, plus --at times
     const moments = await page.evaluate(() => {
       const S = window.SCENES, out = [];
@@ -477,8 +596,10 @@ const md = [
   ``,
   ...(findings.length ? findings.map(f => `- **${f.level}** \`${f.check}\` ${f.msg}${f.at !== undefined ? ` (t=${f.at}s)` : ''}`) : ['- no findings']),
   ``,
+  ...(report.handoffs && report.handoffs.length ? ['| cut t | type | diff across cut | ink before → after | min ink ±0.25s | via |', '|---|---|---|---|---|---|',
+    ...report.handoffs.map(h => `| ${h.t} | ${h.type} | ${(h.diff * 100).toFixed(1)}% | ${(h.coverageBefore * 100).toFixed(1)}% → ${(h.coverageAfter * 100).toFixed(1)}% | ${(h.minCoverageAround * 100).toFixed(1)}% | ${h.via} |`), ''] : []),
   mode === 'video'
-    ? `Evidence: \`contact-sheet.png\` (every ${STEP}s)${report.moments && report.moments.length ? ', `moments.png` (' + report.moments.length + ' scene/--at frames)' : ''}, \`key_000..100.png\`, \`frames/\`. If your model reads images, open contact-sheet.png and run the Critique Pass on it; otherwise use the per-frame table in report.json (coverage = ink share, diff = change vs previous step).`
+    ? `Evidence: \`contact-sheet.png\` (every ${STEP}s)${report.moments && report.moments.length ? ', `moments.png` (' + report.moments.length + ' scene/--at frames)' : ''}${report.handoffs && report.handoffs.length ? ', `handoffs.png` (last frame before / first frame after each cut)' : ''}, \`key_000..100.png\`, \`frames/\`. If your model reads images, open contact-sheet.png and run the Critique Pass on it; otherwise use the per-frame table in report.json (coverage = ink share, diff = change vs previous step).`
     : `Evidence: \`desktop.png\`, \`mobile.png\`, \`desktop-dark.png\` (full page).`,
   ``,
 ];

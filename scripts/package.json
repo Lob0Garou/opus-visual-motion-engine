@@ -2,10 +2,12 @@
   "name": "opus-visual-motion-engine-scripts",
   "private": true,
   "type": "module",
-  "description": "QA + export tooling for the opus-visual-motion-engine skill",
+  "description": "QA, export and score tooling for the opus-visual-motion-engine skill",
   "scripts": {
     "qa": "node qa.mjs",
-    "export": "node export.mjs"
+    "export": "node export.mjs",
+    "score": "node score.mjs",
+    "audio": "node audio-data.mjs"
   },
   "dependencies": {
     "playwright": "1.63.0"

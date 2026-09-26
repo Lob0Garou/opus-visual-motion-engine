@@ -59,7 +59,7 @@ Self-check against these generated-design clusters; where the brief pins a direc
 4. SaaS-card kit: identical rounded cards, one radius everywhere, same soft shadow `rgba(0,0,0,.1)`, gradient washes as decoration;
 5. template chrome: tracked-out ALL-CAPS eyebrows, middle-dot meta strings, "WORD — fragment" labels, near-black `#0B0B0B` as black, monospace for small data labels, "→" on links/buttons.
 
-Plus: excessive centered layouts, purple gradients, uniform rounded corners, Inter-everywhere, fade-up on every section, hover on every card. Each is legitimate when the brief asks for it — the tell is that they appear REGARDLESS of subject. Fix = replace the default with a choice anchored in the subject's vernacular, and write down what you changed and why.
+Plus: excessive centered layouts, purple gradients, uniform rounded corners, Inter-everywhere, fade-up on every section, hover on every card. Each is legitimate when the brief asks for it — the tell is that they appear REGARDLESS of subject. A palette documented in the brand's own files (logo SVG, CSS tokens) is the subject, not a tell: cite the file in the plan. Fix = replace the default with a choice anchored in the subject's vernacular, and write down what you changed and why.
 
 ## 7. Restraint
 

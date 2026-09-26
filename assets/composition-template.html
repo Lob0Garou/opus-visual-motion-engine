@@ -6,10 +6,11 @@
 <title>Composition title</title>
 <!--
   opus-visual-motion-engine :: assets/composition-template.html
-  Copy this file, keep the ENGINE block untouched, replace everything marked EDIT.
-  Contract: window.DURATION, window.seek(t), window.render(t), window.SCENES. All state derives from t.
-  Audio sync (optional): node scripts/audio-data.mjs music.mp3 --inject this.html → window.AUDIO;
-  export with: node scripts/export.mjs this.html --audio music.mp3
+  Copy this file, keep the ENGINE blocks untouched, replace everything marked EDIT.
+  Contract: window.DURATION, window.seek(t), window.render(t), window.SCENES, window.HANDOFFS. All state derives from t.
+  Sound: the <script id="score"> cue sheet uses the SAME timestamps as render(t);
+         node scripts/score.mjs this.html --out score.m4a  →  node scripts/export.mjs this.html --audio score.m4a
+  Existing music instead: node scripts/audio-data.mjs music.mp3 --inject this.html → window.AUDIO.
   Preview: open in a browser (space = play/pause, ←/→ = ±0.5s, Home/End).
   Capture: navigator.webdriver or ?capture → player hidden, autoplay off, frames 1:1.
 -->
@@ -35,6 +36,7 @@
   #frame { position: relative; flex: none; transform-origin: center; }
   #stage { position: absolute; inset: 0; overflow: hidden; background: var(--bg); transform-origin: 50% 50%; }
   .layer { position: absolute; inset: 0; }
+  .world { position: absolute; left: 0; top: 0; width: 100%; height: 100%; transform-origin: 0 0; will-change: transform; }
   #player { position: fixed; left: 0; right: 0; bottom: 0; height: 4px; background: color-mix(in srgb, var(--ink) 12%, transparent); cursor: pointer; }
   #player i { display: block; height: 100%; width: 0; background: var(--ink-soft); }
   .capture #player { display: none; }
@@ -43,34 +45,55 @@
   .display { font: 400 112px/1.06 var(--display); color: var(--ink); letter-spacing: -0.01em; }
   .label   { font: 400 34px/1.4 var(--text); color: var(--ink-soft); }
   .num     { font: 500 160px/1 var(--num); color: var(--accent); font-variant-numeric: tabular-nums; }
+  .node    { position: absolute; width: 36px; height: 36px; margin: -18px 0 0 -18px; border-radius: 50%; background: var(--accent); }
 </style>
 </head>
 <body>
 <div id="viewport"><div id="frame"><div id="stage">
 
-  <!-- EDIT: one .layer per scene, ids match SCENES keys -->
-  <section class="layer" id="s-hook" style="display:grid; place-items:center">
-    <div style="width:1320px">
-      <div class="display" id="hookText">One sentence the viewer keeps.</div>
-      <div class="label" id="hookSub" style="margin-top:28px">supporting line, sentence case</div>
+  <!-- EDIT: one .layer per scene; a .world inside a layer is the camera target -->
+  <section class="layer" id="s-hook">
+    <div class="world" id="hookWorld">
+      <div style="position:absolute; left:300px; top:330px; width:1320px">
+        <div class="display" id="hookText">One sentence the viewer keeps.</div>
+        <div class="label" id="hookSub" style="margin-top:28px">supporting line, sentence case</div>
+      </div>
+      <svg width="1920" height="1080" viewBox="0 0 1920 1080" aria-hidden="true" style="position:absolute; inset:0">
+        <line id="hookRule" x1="300" y1="700" x2="1620" y2="700" pathLength="1" stroke-dasharray="1" stroke-dashoffset="1"
+              stroke="var(--ink-soft)" stroke-width="4"/>
+      </svg>
+      <i class="node" id="hookDot" style="left:1620px; top:700px"></i>
     </div>
   </section>
 
   <section class="layer" id="s-proof">
-    <svg width="1920" height="1080" viewBox="0 0 1920 1080" aria-hidden="true">
-      <!-- draw-on: pathLength="1" + stroke-dasharray="1" + dashoffset 1→0 -->
-      <path id="proofLine" d="M300 820 C 700 800, 900 560, 1620 300" pathLength="1"
-            stroke-dasharray="1" stroke-dashoffset="1"
-            fill="none" stroke="var(--accent)" stroke-width="8" stroke-linecap="round"/>
-    </svg>
-    <div style="position:absolute; left:300px; top:200px">
-      <div class="num" id="proofNum">0</div>
-      <div class="label" style="margin-top:16px">what the number means</div>
+    <div class="world" id="proofWorld">
+      <svg width="1920" height="1080" viewBox="0 0 1920 1080" aria-hidden="true" style="position:absolute; inset:0">
+        <!-- draw-on: pathLength="1" + stroke-dasharray="1" + dashoffset 1→0 -->
+        <path id="proofLine" d="M300 820 C 700 800, 900 560, 1620 300" pathLength="1"
+              stroke-dasharray="1" stroke-dashoffset="1"
+              fill="none" stroke="var(--accent)" stroke-width="8" stroke-linecap="round"/>
+      </svg>
+      <i class="node" style="left:300px; top:820px"></i>
+      <div style="position:absolute; left:300px; top:200px">
+        <div class="num" id="proofNum">0</div>
+        <div class="label" style="margin-top:16px">what the number means</div>
+      </div>
     </div>
   </section>
 
 </div></div></div>
 <div id="player" data-qa-ignore><i></i></div>
+
+<!-- EDIT (optional): sound cue sheet — same timestamps as render(t); see scripts/score.mjs for styles and sfx -->
+<script type="application/json" id="score">
+{ "duration": 8, "bpm": 120, "downbeat": 0.5, "seed": 7, "lufs": -14,
+  "sections": [ { "from": 0, "to": 3.6, "style": "groove", "key": "D", "mode": "minor", "chords": ["i", "VI"] },
+                { "from": 3.6, "to": 7.2, "style": "drive", "key": "F", "mode": "major", "chords": ["I", "V"] },
+                { "from": 7.2, "to": 8, "style": "resolve", "key": "F", "mode": "major" } ],
+  "hits": [ { "t": 3.6, "sfx": "whoosh" }, { "t": 3.6, "sfx": "impact", "gain": 0.6 },
+            { "t": 4.1, "sfx": "ticks", "to": 4.9, "n": 10 }, { "t": 4.9, "sfx": "ping" } ] }
+</script>
 
 <script>
 "use strict";
@@ -82,20 +105,43 @@ const lerp = (a, b, p) => a + (b - a) * p;
 const at = (t, start, end) => clamp01((t - start) / (end - start));
 const ease = {
   linear: (p) => clamp01(p),
-  out: (p) => 1 - Math.pow(1 - clamp01(p), 3),
-  in: (p) => Math.pow(clamp01(p), 3),
+  out: (p) => 1 - Math.pow(1 - clamp01(p), 3),               // settle (cubic)
+  quadOut: (p) => 1 - Math.pow(1 - clamp01(p), 2),
+  quartOut: (p) => 1 - Math.pow(1 - clamp01(p), 4),          // hard slam
+  expoOut: (p) => { p = clamp01(p); return p >= 1 ? 1 : 1 - Math.pow(2, -10 * p); },   // whip / snap / pull-back
+  in: (p) => Math.pow(clamp01(p), 3),                        // accelerate INTO a cut
+  quadIn: (p) => Math.pow(clamp01(p), 2),
   inOut: (p) => { p = clamp01(p); return p < .5 ? 4 * p * p * p : 1 - Math.pow(-2 * p + 2, 3) / 2; },
+  sineInOut: (p) => -(Math.cos(Math.PI * clamp01(p)) - 1) / 2,
   backOut: (p, s = 1.7) => { p = clamp01(p) - 1; return 1 + (s + 1) * p * p * p + s * p * p; },
+  steps: (p, n = 8) => Math.floor(clamp01(p) * n) / n,       // typewriter / digital reveals
 };
+/** eased progress of a tween that starts at t0 and lasts dur seconds */
+const tw = (t, t0, dur, fn = ease.out, ...a) => fn(at(t, t0, t0 + dur), ...a);
+/** slow-fast-slow group move: ramp (10% dist / 20% time) → linear burst (65% / 18%) → long tail (25% / 62%) */
+const nudge = (p) => { p = clamp01(p); return p < .2 ? .1 * Math.pow(p / .2, 3) : p < .38 ? .1 + .65 * (p - .2) / .18 : .75 + .25 * (1 - Math.pow(1 - (p - .38) / .62, 4)); };
+/** deterministic noise 0..1 — quantize time first for digital jitter: hash01(Math.floor(t * 24) * 13 + i) */
+const hash01 = (n) => { const x = Math.sin(n * 127.1 + 311.7) * 43758.5453; return x - Math.floor(x); };
 /** seeded PRNG — the only randomness allowed */
 function mulberry32(seed) { let a = seed >>> 0; return () => { a = (a + 0x6D2B79F5) | 0;
   let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
   return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
-/** show a scene layer with an EXIT fade after `end` (never leave a layer mid-state) */
+/** hard cut: visible only inside [start, end); the scene that ends at DURATION keeps its last frame */
+function cut(el, t, start, end) {
+  const on = t >= start && (t < end || (end >= DURATION && t <= end));
+  el.style.visibility = on ? "visible" : "hidden"; el.style.opacity = on ? 1 : 0;
+  return on;
+}
+/** dip: fade a layer out after `end` — only for a deliberate category change (not the default handoff) */
 function layer(el, t, start, end, exit = 0.45) {
   const o = t < start ? 0 : t < end ? 1 : 1 - clamp01((t - end) / exit);
   el.style.opacity = o; el.style.visibility = o > 0 ? "visible" : "hidden";
   return o;
+}
+/** camera on a .world element: world point (fx, fy) lands on stage point (ax, ay) at scale s → T = A − s·F */
+function camera(el, s, fx, fy, ax = STAGE_W / 2, ay = STAGE_H / 2, blur = 0) {
+  el.style.transform = `translate(${ax - s * fx}px, ${ay - s * fy}px) scale(${s})`;
+  el.style.filter = blur > 0.05 ? `blur(${blur}px)` : "none";
 }
 const $ = (id) => document.getElementById(id);
 const frame = $("frame");
@@ -115,28 +161,40 @@ function fit() { const s = Math.min(innerWidth / STAGE_W, innerHeight / STAGE_H)
 addEventListener("resize", fit); fit();
 /* ================================================================ */
 
-/* ---------- EDIT: timeline (absolute seconds; sum = DURATION) ---------- */
+/* ---------- EDIT: timeline (absolute seconds; scenes tile the timeline, no gaps) ---------- */
 const DURATION = 8;
-// Each scene: [start, end]. The layer's EXIT (0.45s) runs after `end`; the next scene
-// starts only after that exit completes — scenes never share the frame mid-state.
-const SCENES = { hook: [0, 3.4], proof: [3.9, 8] };
-const L = { hook: $("s-hook"), proof: $("s-proof"), hookText: $("hookText"), hookSub: $("hookSub"),
-  line: $("proofLine"), num: $("proofNum"), stage: $("stage") };
+const SCENES = { hook: [0, 3.6], proof: [3.6, 8] };
+// Every cut is designed: type (match | push | iris | morph | collapse | cut | dip) + the object that carries it.
+// qa.mjs captures the last frame before and the first frame after each one (handoffs.png).
+const HANDOFFS = [{ t: 3.6, type: "push", via: "accent node: camera accelerates into it, the next scene starts on it and decelerates out" }];
+const L = { hook: $("s-hook"), proof: $("s-proof"), hookWorld: $("hookWorld"), proofWorld: $("proofWorld"),
+  hookText: $("hookText"), hookSub: $("hookSub"), rule: $("hookRule"), line: $("proofLine"), num: $("proofNum") };
+const PUSH = { s: 3.2, fx: 1620, fy: 700, ax: 1180, ay: 560 };   // the hand-off pose, shared by both scenes
 
 /* ---------- EDIT: the one render function — every property from t ---------- */
 function render(t) {
   t = Math.min(Math.max(t, 0), DURATION);
 
-  layer(L.hook, t, 0, SCENES.hook[1]);
-  const h = ease.out(at(t, 0.1, 0.9));
-  L.hookText.style.opacity = h;
-  L.hookText.style.transform = `translateY(${24 * (1 - h)}px)`;
-  L.hookSub.style.opacity = ease.out(at(t, 0.8, 1.4));
+  if (cut(L.hook, t, ...SCENES.hook)) {
+    const h = tw(t, 0.1, 0.8, ease.expoOut);
+    L.hookText.style.opacity = h;
+    L.hookText.style.transform = `translateY(${40 * (1 - h)}px)`;
+    L.hookSub.style.opacity = tw(t, 0.8, 0.6);
+    L.rule.setAttribute("stroke-dashoffset", String(1 - tw(t, 1.2, 0.9, ease.inOut)));
+    // CAMERA as the transition: accelerate into the node, blur peaks at the cut
+    const p = tw(t, 2.8, 0.8, ease.in);
+    camera(L.hookWorld, lerp(1, PUSH.s, p), lerp(960, PUSH.fx, p), lerp(540, PUSH.fy, p),
+      lerp(960, PUSH.ax, p), lerp(540, PUSH.ay, p), 6 * tw(t, 3.3, 0.3, ease.quadIn));
+  }
 
-  layer(L.proof, t, SCENES.proof[0], DURATION);
-  L.stage.style.transform = `scale(${lerp(1, 1.04, ease.inOut(at(t, 4.4, 5.6)))})`;   // CAMERA, once
-  L.line.setAttribute("stroke-dashoffset", String(1 - ease.inOut(at(t, 4.0, 5.8))));
-  L.num.textContent = Math.round(12403 * ease.out(at(t, 4.1, 4.9))).toLocaleString("en-US");
+  if (cut(L.proof, t, ...SCENES.proof)) {
+    // starts on the same pose (a node of the same size and colour sits at the same stage point), decelerates out
+    const p = tw(t, 3.6, 0.9, ease.expoOut);
+    camera(L.proofWorld, lerp(PUSH.s, 1, p), lerp(300, 960, p), lerp(820, 540, p),
+      lerp(PUSH.ax, 960, p), lerp(PUSH.ay, 540, p), 6 * (1 - tw(t, 3.6, 0.3, ease.quadOut)));
+    L.line.setAttribute("stroke-dashoffset", String(1 - tw(t, 3.9, 1.9, ease.inOut)));
+    L.num.textContent = Math.round(12403 * tw(t, 4.1, 0.8)).toLocaleString("en-US");
+  }
 }
 
 /* ===================== ENGINE: player + contract (do not edit) ===================== */
@@ -155,6 +213,20 @@ function pause() { playing = false; }
 window.DURATION = DURATION;
 window.render = render;
 window.SCENES = SCENES;                          // lets qa.mjs capture every scene's entry/middle/end
+window.HANDOFFS = typeof HANDOFFS !== "undefined" ? HANDOFFS : [];   // lets qa.mjs capture every cut
+// Web fonts ship in unicode-range subsets that load only when a glyph first renders: a "●" or "✓" that
+// appears at 3.5 s would change pixels after capture started (non-deterministic export). Request every
+// family × weight with every character the stage contains, so document.fonts.ready waits for all of them.
+if (document.fonts && document.fonts.load) {
+  const want = new Map();
+  for (const el of document.querySelectorAll("#stage *")) {
+    const txt = [...el.childNodes].filter((n) => n.nodeType === 3).map((n) => n.nodeValue).join("");
+    if (!txt.trim()) continue;
+    const cs = getComputedStyle(el), key = `${cs.fontStyle} ${cs.fontWeight} 32px ${cs.fontFamily}`;
+    want.set(key, (want.get(key) || "") + txt);
+  }
+  for (const [font, txt] of want) document.fonts.load(font, [...new Set(txt + "0123456789")].join("")).catch(() => {});
+}
 window.seek = (t) => { pause(); clock = Math.min(Math.max(Number(t) || 0, 0), DURATION); render(clock); ui(); };
 addEventListener("keydown", (e) => {
   if (e.code === "Space") { e.preventDefault(); playing ? pause() : play(); }

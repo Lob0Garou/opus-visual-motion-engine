@@ -28,7 +28,7 @@ Read when type carries the design (landing pages, kinetic type, editorial layout
 3. Unnecessary typographic labels above content that already explains itself.
 4. Title Case or ALL CAPS in diagram labels/buttons — sentence case always, including SVG text.
 5. Mid-sentence bolding for emphasis; entity/function names belong in `code style`, not bold.
-6. Monospace for small data labels as a default aesthetic (use it when data IS code, not as style).
+6. Monospace for small data labels as a default aesthetic (use it when data IS code or a machine readout — timecode, a clock, a table of times — not as style).
 7. Same family/weight/size for title and subtitle on a colored fill — they need different stops/tones, not just different weight.
 
 ## 4. Numeric typography
@@ -49,3 +49,6 @@ Read when type carries the design (landing pages, kinetic type, editorial layout
 - Reveal = transform + opacity only (scale 0.6→1, blur→sharp [X], slide with ease-out).
 - The word settles FULLY before the next beat's element enters; never crossfade mid-morph.
 - Reading time floor: ~1.2s per 8 words on screen [X]; longer text = more time or less text.
+- Display stacks: 120–260px, heavy, leading ~0.9, tracking −0.035em. Tight stacks are fine as long as the glyph ink does not touch (`qa.mjs` measures ink, not the font box).
+- One headline anchor zone per register (e.g. top-left); the thesis sentence continues across scenes in that zone.
+- Each headline enters differently: slam (scale + blur), snap (slide + horizontal streak), waterfall (words rise, binary opacity), mask rise (`overflow:hidden` line), typewriter clip (`clip-path` + `steps`).

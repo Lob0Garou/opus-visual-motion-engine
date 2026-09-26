@@ -42,7 +42,11 @@ const vol = spawnSync('ffmpeg', ['-v', 'info', '-i', src, '-af', 'ebur128=peak=s
 const log = vol.stderr || '';
 const lufs = Number((log.match(/I:\s+(-?[\d.]+) LUFS/g) || []).pop()?.match(/-?[\d.]+/)[0]);
 const peakDb = Number((log.match(/Peak:\s+(-?[\d.]+|-inf) dBFS/g) || []).pop()?.match(/-?[\d.]+|-inf/)[0]);
-let clipped = 0; for (const v of full) if (Math.abs(v) >= 0.999) clipped++;
+// clipping is counted on the native channels: a mono downmix sums L+R (+3 dB) and would flag a
+// correlated stereo master at -1 dBFS as clipped
+const nat = spawnSync('ffmpeg', ['-v', 'error', '-i', src, '-f', 'f32le', '-'], { maxBuffer: 1 << 30 }).stdout;
+const natF = new Float32Array(nat.buffer, nat.byteOffset, nat.byteLength / 4);
+let clipped = 0; for (const v of natF) if (Math.abs(v) >= 0.999) clipped++;
 
 // ---------- per-frame energy ----------
 const perFrame = SR / FPS, frames = Math.ceil(full.length / perFrame);

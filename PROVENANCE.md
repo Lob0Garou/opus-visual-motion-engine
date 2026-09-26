@@ -188,3 +188,34 @@ Nenhum código foi copiado; os padrões foram reimplementados. Fonte: https://gi
 | checagem de fonte não carregada | "Tokens must sit exactly inside their boxes… If they drift, the font did not load" | [T] família inexistente → WARN `font` |
 | seção "Side effects and rights" | seções *Side effects* e *Rights* do SKILL.md deles | — |
 
+
+---
+
+## v3 — nível "reel" (2026-09-25)
+
+Legenda nova: `[R]` = regra derivada do **reel de referência** (showreel EQC de 15 s produzido pelo Claude Opus 5.5 no Claude Code com HyperFrames, julgado pelo autor muito acima dos mesmos pedidos em outros modelos/harness) e reproduzida no motor da skill em `examples/brand-reel.html`. `[T]` continua = defeito reproduzido e detectado pelo QA.
+
+| Mudança | Motivo | Origem |
+|---|---|---|
+| `references/reel-craft.md` (novo) + §0/§1 do SKILL.md: coleta de material real (logo SVG oficial, hex da marca, UI real, números com qualificador, tagline) antes do plano, com `## Sources` | a diferença mais visível do reel: tudo na tela era do próprio assunto; os outros modelos usavam placeholders | [R] |
+| §1 conceito = tese em frase corrida + dispositivo persistente + dois registros com troca pelo "momento-assinatura" | o reel contava UM argumento ("O pico não espera a escala se ajustar") com um relógio 10h→20h e a virada escuro→papel pelo anel do Q | [R] |
+| §1/§3 mundos persistentes com câmera `T = A − s·F` e estado derivado | o mesmo gráfico em 3 cenas; a cobertura recalculada das barras a cada frame | [R] |
+| §4 HANDOFF substitui "EXIT completo antes da próxima cena"; cenas ladrilham a timeline; tabela de handoffs obrigatória; `window.HANDOFFS` | o template v2 (exit 0,45 s → vazio → enter) produzia slideshow; o reel cortava em movimento (match, push, iris, collapse) | [R] |
+| orçamento de técnicas (uma técnica primária por cena, sem repetir entradas de título) | faixa de showreel sem virar ruído | [R] |
+| settle-hold ≥0,4 s antes de uma saída | no reel original as 42 lojas ainda voavam quando a implosão começou (0,2 s assentadas) | [R][T] |
+| HUD diegético (`data-qa-hud`) e exceção de paleta documentada da marca | o HUD (timecode, cena, relógio da loja) e a paleta creme/ferrugem da marca eram o assunto, não "tells" | [R] |
+| §10 som obrigatório: `scripts/score.mjs` (novo) compõe trilha + SFX determinísticos de uma cue sheet no próprio HTML, masteriza em −14 LUFS / ≤ −1 dBTP | no benchmark da v2 a skill entregava sem áudio; o reel tinha trilha original sincronizada a cada corte | [R] [T] cue sheet do reel → −14,1 LUFS, −1,0 dBTP; `audio-data.mjs` re-detecta 119,6 BPM (grade de 120) |
+| `audio-data.mjs`: clipping contado nos canais nativos | contava no downmix mono (+3 dB) e acusava 2.335 amostras "clipadas" num master estéreo em −1 dBTP | [T] |
+| template: `tw`, `cut`, `camera`, `nudge`, `hash01`, easings quart/expo/quad/sine/steps, bloco `score`, `HANDOFFS`, demo com handoff `push`, pré-carga de glifos | o motor v2 não tinha câmera nem cortes em movimento | [R] [T] template: PASS 0 WARN |
+| `qa.mjs`: texto dentro de câmera pode sair do quadro (INFO); colisões/contraste transitórios sob câmera ignorados | push-through reprovava como `clipped` | [T] |
+| `qa.mjs`: retângulos de texto recortados por `overflow:hidden` e `clip-path: inset()` | máscaras (mask rise, typewriter) geravam colisões e contraste falsos | [T] |
+| `qa.mjs`: caixas de texto = tinta do glifo (`measureText` actualBoundingBox) | fontes display (Archivo Black: caixa 1,35 em) colidiam pela caixa com a tinta separada; o reel passou sem nenhum `data-qa-allow-overlap` | [T] |
+| `qa.mjs`: tells contados só em elementos visíveis; gradientes = só os suaves (hachuras/grades com stops duros não contam) | cenas ocultas somavam 27 "gradientes" e 12 sombras | [T] |
+| `qa.mjs`: `handoffs.png` + `empty-handoff`, `scene-gap`, `handoff-jump` | verificar cada corte como par de frames | [R] [T] |
+| `qa.mjs`: `dash-snap` (reamostra 11 pontos entre frames da grade) | GSAP arredonda px: draw com `pathLength="1"` saltava 0→1 no reel original | [T] |
+| §3/reel-craft §9: textura deriva em pixel inteiro; `transform: none` ao assentar; pré-carga de glifos | determinismo falhava na revisita (0,19 % dos pixels): primeiro a grade de pontos sub-pixel, depois `translateY(0) rotate(0)` numa palavra; `●`/`✓` de subset tardio | [T] |
+| typography: mono permitido para leituras de máquina (timecode, relógio, tabela de horários); pilhas display por tinta | o reel usa mono só para dados | [R] |
+
+Verificado na v3: `qa.mjs` → template PASS (0 FAIL/0 WARN), `examples/brand-reel.html` PASS (0 FAIL/0 WARN, 1 INFO poster); `score.mjs` na cue sheet do reel (−14,1 LUFS, −1,0 dBTP, BPM re-detectado 119,6).
+Teste de mutação das checagens novas (cópias do template): lacuna 3,2–3,8 s → `scene-gap` + `empty-handoff`; dashoffset arredondado → `dash-snap`; corte declarado `match` sem pose comum → `handoff-jump` (143 % da tinta). Reel e template seguem PASS com 0 WARN.
+Não verificado na v3: a trilha ouvida em alto-falantes (só métricas + espectrograma); export MP4 do reel pela skill (o reel original já tinha sido renderizado no HyperFrames); a skill carregada por uma sessão DSH/DeepSeek com a v3.

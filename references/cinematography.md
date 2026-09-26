@@ -15,6 +15,8 @@ The camera is a container transform. Three legal moves:
 1. **Push-in / pull-out**: `scale` on the stage container, 1.0 → 1.05–1.15, 0.8–1.2s, ease-in-out [X]. Purpose: focus or reveal context.
 2. **Pan**: translate the stage so a new region occupies the frame; used to walk a diagram left-to-right or top-to-bottom.
 3. **Reframe**: resize/reposition a bounded element to become the next scene's stage (e.g. a metric card grows into the next panel's canvas).
+4. **Push-through** (a cut): accelerate into an object (ease-in, blur rising) so the cut lands mid-move; the next scene starts at speed on a matching pose and decelerates (expo-out). The eye reads one move across the cut.
+5. **Fly-through / iris** (a register switch): scale into an object's interior until it fills the frame and becomes the next background (a logo ring's core, a lens, a screen).
 
 Forbidden: random drift, parallax with no narrative reason, rotating the stage (readability dies), camera moves during a text read.
 
@@ -27,7 +29,8 @@ Forbidden: random drift, parallax with no narrative reason, rotating the stage (
 
 ## 4. Continuity rules
 
-- An object persisting across scenes keeps its exact position/scale across the cut (or morphs deliberately).
+- An object persisting across scenes keeps its exact position/scale across the cut (or morphs deliberately). Compute both sides of the cut from one named pose constant.
+- Cut on motion: a cut placed mid-move hides itself; a cut between two still frames announces itself. Put cuts on beats.
 - Text never enters faster than 150ms and stays readable ≥1.2s per 8 words [X].
 - The exit of scene N and the enter of scene N+1 share at most one moving element; everything else swaps.
 - Color continuity: scene accents belong to one palette; a hue change signals a semantic change, never an arbitrary variation.
