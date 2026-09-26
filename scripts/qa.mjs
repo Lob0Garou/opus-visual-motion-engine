@@ -1,7 +1,11 @@
 #!/usr/bin/env node
 // qa.mjs — automated render + critique evidence for a single-file HTML deliverable.
 //
-//   node qa.mjs <file.html> [--out <dir>] [--step 0.5] [--width W --height H] [--mode video|page]
+//   node qa.mjs <file.html> [--out <dir>] [--step 0.5] [--at 1.2,3.4] [--width W --height H] [--mode video|page]
+//
+// Moments: if the page exposes window.SCENES ({name:[start,end]} or [{name,start,end}]), each scene is
+// also captured on entry, middle and end (moments.png); --at adds exact times (e.g. the signature moment).
+// Mark deliberate layering with data-qa-allow-overlap on an ancestor (skips collision/over-graphics).
 //
 // Video mode (window.DURATION + window.seek present): captures a step grid via seek(t),
 // checks determinism, frozen timeline, dead air, empty frames, unsettled end, text
@@ -95,7 +99,7 @@ function probePage() {
     texts.push({ id: i++, text: txt.slice(0, 48), rects, color, size, weight: s.fontWeight,
       family: s.fontFamily.split(',')[0].replace(/["']/g, '').trim(), op,
       upperTracked: s.textTransform === 'uppercase' && parseFloat(s.letterSpacing) >= 0.05 * parseFloat(s.fontSize),
-      tag: el.tagName.toLowerCase(), inLink: !!el.closest('a,button') });
+      tag: el.tagName.toLowerCase(), inLink: !!el.closest('a,button'), allowOverlap: !!el.closest('[data-qa-allow-overlap]') });
   }
   // template tells
   const all = [...document.querySelectorAll('body *')];
@@ -113,10 +117,16 @@ function probePage() {
     const off = e.getAttribute('stroke-dashoffset') ?? e.style.strokeDashoffset;
     return off && off !== '0' && (s.strokeDasharray === 'none' || !s.strokeDasharray);
   }).map(e => e.tagName.toLowerCase() + (e.id ? '#' + e.id : ''));
+  // first-choice font families that did not load (canvas width equals both generic fallbacks)
+  const GENERIC = /^(serif|sans-serif|monospace|cursive|fantasy|system-ui|ui-serif|ui-sans-serif|ui-monospace|ui-rounded|-apple-system|blinkmacsystemfont|emoji|math)$/i;
+  const cv = document.createElement('canvas').getContext('2d');
+  const wOf = (f) => { cv.font = '40px ' + f; return cv.measureText('Hamburgefonstiv 0123456789 WMwm').width; };
+  const missingFonts = [...new Set(texts.map(t => t.family))].filter(f => f && !GENERIC.test(f) &&
+    wOf(`"${f}", monospace`) === wOf('monospace') && wOf(`"${f}", serif`) === wOf('serif'));
   const bodyBg = parse(getComputedStyle(document.body).backgroundColor);
   const htmlBg = parse(getComputedStyle(document.documentElement).backgroundColor);
   const stage = document.querySelector('#stage');
-  return { texts, gradients, radii, shadows, bodyBg, htmlBg, deadDash,
+  return { texts, gradients, radii, shadows, bodyBg, htmlBg, deadDash, missingFonts,
     docW: document.documentElement.scrollWidth, vw: innerWidth,
     stage: stage ? { w: stage.offsetWidth, h: stage.offsetHeight } : null,
     wide: [...document.querySelectorAll('body *')].filter(e => e.getBoundingClientRect().right > innerWidth + 1)
@@ -207,7 +217,7 @@ async function makeAnalyzer() {
         for (let i = 0; i < frames.length; i++) {
           const img = await load(frames[i].b64);
           const cx = G + (i % cols) * (TW + G), cy = G + Math.floor(i / cols) * (TH + LBL + G);
-          x.fillStyle = '#e8e6e1'; x.font = '600 14px system-ui, sans-serif'; x.fillText('t = ' + frames[i].t.toFixed(2) + 's', cx + 2, cy + 15);
+          x.fillStyle = '#e8e6e1'; x.font = '600 14px system-ui, sans-serif'; x.fillText((frames[i].label ? frames[i].label + '  ' : '') + 't = ' + frames[i].t.toFixed(2) + 's', cx + 2, cy + 15);
           x.drawImage(img, cx, cy + LBL, TW, TH);
         }
         return c.toDataURL('image/png').split(',')[1];
@@ -233,6 +243,7 @@ function layoutRules(probe, checks, at, ctx) {
   const byId = new Map(T.map(t => [t.id, t]));
   // collisions
   for (let i = 0; i < T.length; i++) for (let j = i + 1; j < T.length; j++) {
+    if (T[i].allowOverlap || T[j].allowOverlap) continue;
     if (T[i].op >= 0.3 && T[j].op >= 0.3 && rectsOverlap(T[i].rects, T[j].rects) > 0.2)
       once('FAIL', 'text-collision', `"${T[i].text}" overlaps "${T[j].text}"`, at);
   }
@@ -242,6 +253,8 @@ function layoutRules(probe, checks, at, ctx) {
       once('FAIL', 'clipped', `"${t.text}" extends outside the frame`, at); break;
     }
   }
+  for (const f of probe.missingFonts || [])
+    once('WARN', 'font', `font-family "${f}" did not load — text renders in a fallback, so widths and the pre-render math are off (check the font URL / @font-face)`);
   for (const d of probe.deadDash || [])
     once('FAIL', 'dead-dash', `${d} animates stroke-dashoffset but has no stroke-dasharray — the line is drawn in full, the draw-on never happens`, at);
   // min size
@@ -254,7 +267,7 @@ function layoutRules(probe, checks, at, ctx) {
     const need = large ? 3 : 4.5;
     if (c.contrast < need)
       once(c.contrast < need - 1.5 ? 'FAIL' : 'WARN', 'contrast', `"${t.text}" contrast ${c.contrast.toFixed(2)}:1 (need ${need}:1)${ctx.tag || ''}`, at);
-    if (c.clutter > 0.14)
+    if (c.clutter > 0.14 && !t.allowOverlap)
       once('WARN', 'text-over-graphics', `"${t.text}" sits on other graphics (${Math.round(c.clutter * 100)}% foreign pixels)${ctx.tag || ''}`, at);
   }
 }
@@ -369,6 +382,31 @@ if (mode === 'video') {
     if ((await analyzer.frameStats(c0, shots[0].b64)).diff > 0.001) add('WARN', 'contract', 'seek(-1) ≠ seek(0) — clamp t inside seek()');
     await seekTo(page, D + 5); const c1 = (await page.screenshot()).toString('base64');
     if ((await analyzer.frameStats(c1, shots[shots.length - 1].b64)).diff > 0.001) add('WARN', 'contract', 'seek(D+5) ≠ seek(D) — clamp t inside seek()');
+    // moments: scene entry / middle / end from window.SCENES, plus --at times
+    const moments = await page.evaluate(() => {
+      const S = window.SCENES, out = [];
+      if (S && typeof S === 'object') {
+        const list = Array.isArray(S) ? S.map(s => [s.name, s.start, s.end]) : Object.entries(S).map(([k, v]) => [k, v[0], v[1]]);
+        for (const [n, a, b] of list) if (Number.isFinite(a) && Number.isFinite(b) && b > a) {
+          out.push({ t: a + Math.min(0.3, (b - a) / 4), label: n + ' in' }, { t: (a + b) / 2, label: n + ' mid' }, { t: Math.max(a, b - 0.1), label: n + ' end' });
+        }
+      }
+      return out;
+    });
+    if (args.at) for (const x of String(args.at).split(',').map(Number).filter(Number.isFinite)) moments.push({ t: x, label: 'at' });
+    const seenT = new Set(); const mshots = [];
+    for (const m of moments) {
+      const t = +Math.min(Math.max(m.t, 0), D).toFixed(3); if (seenT.has(t)) continue; seenT.add(t);
+      await seekTo(page, t);
+      const buf = await page.screenshot(); const b64 = buf.toString('base64');
+      writeFileSync(path.join(outDir, 'frames', `m_${fmt(t)}_${m.label.replace(/[^a-z0-9]+/gi, '-')}.png`), buf);
+      const probe = await page.evaluate(probePage);
+      layoutRules(probe, await analyzer.textChecks(b64, probe.texts), t, { W, H, minSize, clipY: true });
+      mshots.push({ t, b64, label: m.label });
+    }
+    report.moments = mshots.map(m => ({ t: m.t, label: m.label }));
+    if (mshots.length) writeFileSync(path.join(outDir, 'moments.png'), Buffer.from(await analyzer.contactSheet(mshots, mshots.length > 12 ? 6 : 4), 'base64'));
+    else add('INFO', 'moments', 'no window.SCENES and no --at: only the uniform grid was captured (expose SCENES to get per-scene frames)');
     const sheet = await analyzer.contactSheet(shots, shots.length > 24 ? 8 : 6);
     writeFileSync(path.join(outDir, 'contact-sheet.png'), Buffer.from(sheet, 'base64'));
     for (const p of [0, .25, .5, .75, 1]) {
@@ -440,7 +478,7 @@ const md = [
   ...(findings.length ? findings.map(f => `- **${f.level}** \`${f.check}\` ${f.msg}${f.at !== undefined ? ` (t=${f.at}s)` : ''}`) : ['- no findings']),
   ``,
   mode === 'video'
-    ? `Evidence: \`contact-sheet.png\` (every ${STEP}s), \`key_000..100.png\`, \`frames/\`. If your model reads images, open contact-sheet.png and run the Critique Pass on it; otherwise use the per-frame table in report.json (coverage = ink share, diff = change vs previous step).`
+    ? `Evidence: \`contact-sheet.png\` (every ${STEP}s)${report.moments && report.moments.length ? ', `moments.png` (' + report.moments.length + ' scene/--at frames)' : ''}, \`key_000..100.png\`, \`frames/\`. If your model reads images, open contact-sheet.png and run the Critique Pass on it; otherwise use the per-frame table in report.json (coverage = ink share, diff = change vs previous step).`
     : `Evidence: \`desktop.png\`, \`mobile.png\`, \`desktop-dark.png\` (full page).`,
   ``,
 ];

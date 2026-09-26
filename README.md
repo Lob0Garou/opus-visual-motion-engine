@@ -15,6 +15,7 @@ It was built by reverse-engineering *why* frontier models produce good visuals. 
 | `assets/composition-template.html` | a correct starting point: 1920×1080 stage fitted to any window, `seek(t)`/`DURATION` contract, seeded PRNG, easing helpers, a preview player that turns off during capture, dark-mode tokens |
 | `scripts/qa.mjs` | headless render + automated critique; writes a contact sheet, key frames, `report.md` and `report.json`; exits 1 on any FAIL |
 | `scripts/export.mjs` | frame-exact export via ffmpeg to `.mp4` / `.webm` / `.gif`, with optional `--audio` |
+| `scripts/audio-data.mjs` | turns music or voice into `window.AUDIO` (beat grid, onsets, per-frame loudness, kick band), so motion syncs to sound frame-exactly; checks clipping, peak and LUFS |
 | `examples/` | worked briefs and plans (landing page, product video, kinetic type, motion graphic) |
 
 ### What `qa.mjs` catches
@@ -28,6 +29,8 @@ It was built by reverse-engineering *why* frontier models produce good visuals. 
 - SVG lines whose draw-on never happens (`stroke-dashoffset` without `stroke-dasharray`)
 - timer APIs, reduced-motion loops, console errors
 - AI-template tells: Inter everywhere, tracked ALL-CAPS eyebrows, decorative gradients, uniform radius, SaaS-card shadows, cream + terracotta palette
+
+It also captures every scene's entry, middle and end from `window.SCENES` (plus `--at` times) into `moments.png`, and warns when a font did not load. Deliberate layering is whitelisted with `data-qa-allow-overlap`.
 
 **Page mode:** renders desktop 1440, mobile 390 and dark scheme, and checks the same layout rules plus mobile horizontal overflow.
 
@@ -81,6 +84,17 @@ Caveats:
 - This is one run per arm, not a statistical benchmark.
 - The outputs do not have the same spec. The baseline rendered 4K60 with audio, which costs more render time.
 - Token counts come from the harness's own session logs (`usage` per assistant message).
+
+## Changelog
+
+- **v1.1**
+  - Audio sync: `audio-data.mjs` plus template helpers `audioAt`, `since` and `hit`.
+  - Per-scene QA captures (`window.SCENES`, `--at`).
+  - `data-qa-allow-overlap`.
+  - Font-load check.
+  - Side effects and rights section.
+  - Ideas adapted from HyperFrames' community skill [`prod-by-claude`](https://github.com/heygen-com/hyperframes-community-skills/tree/master/skills/prod-by-claude) (Apache-2.0); the code here is original.
+- **v1.0**: initial release.
 
 ## License
 

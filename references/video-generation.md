@@ -50,8 +50,11 @@ node scripts/export.mjs composition.html --out out.mp4 --fps 30 [--audio music.m
 
 ## 6. Narration / audio
 
-- Out of scope by default: the corpus's only audio-adjacent content is a tone library for artifacts [P:L1156] — treat audio as [X].
-- If the brief requires audio: keep audio OUT of `render(t)` (it is not frame-deterministic); document the audio cue sheet (timestamps) next to the timeline and mux the file at export with `--audio`. Sync points are scene-card timestamps.
+- The corpus has no audio doctrine [P:L1156 is only a tone library]; this section is [X], with the data-driven pattern adapted from HyperFrames' community skill `prod-by-claude` (Apache-2.0).
+- Audio never plays inside `render(t)` (playback is not frame-deterministic). Its *timing* comes in as data instead: `node scripts/audio-data.mjs music.mp3 --inject composition.html` writes `window.AUDIO` (beats, onsets, per-frame rms/low, levels).
+- Plan with the data. Once the track is known, take scene starts from `AUDIO.beats`, put the signature moment on a strong onset, and write those timestamps into the scene cards.
+- Reactive motion stays inside the grammar: a beat pulse is EMPHASIS (one element), and a kick-driven scale is ambient. Neither replaces ENTER/EXIT choreography.
+- Check levels before delivery (the script reports clipping, peak, LUFS), then mux the same file with `export.mjs --audio`.
 
 ## 7. Delivery checklist
 

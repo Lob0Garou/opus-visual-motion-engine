@@ -7,7 +7,9 @@
 <!--
   opus-visual-motion-engine :: assets/composition-template.html
   Copy this file, keep the ENGINE block untouched, replace everything marked EDIT.
-  Contract: window.DURATION, window.seek(t), window.render(t). All state derives from t.
+  Contract: window.DURATION, window.seek(t), window.render(t), window.SCENES. All state derives from t.
+  Audio sync (optional): node scripts/audio-data.mjs music.mp3 --inject this.html → window.AUDIO;
+  export with: node scripts/export.mjs this.html --audio music.mp3
   Preview: open in a browser (space = play/pause, ←/→ = ±0.5s, Home/End).
   Capture: navigator.webdriver or ?capture → player hidden, autoplay off, frames 1:1.
 -->
@@ -98,6 +100,17 @@ function layer(el, t, start, end, exit = 0.45) {
 const $ = (id) => document.getElementById(id);
 const frame = $("frame");
 frame.style.width = STAGE_W + "px"; frame.style.height = STAGE_H + "px";
+/** audio-reactive helpers — read window.AUDIO (from scripts/audio-data.mjs); all return 0 without it */
+const AUDIO = window.AUDIO || null;
+/** loudness 0..1 of the video frame at t; key "rms" (full band) or "low" (<150 Hz: kick/bass) */
+const audioAt = (t, key = "rms") => { if (!AUDIO) return 0; const a = AUDIO[key];
+  return a[Math.min(a.length - 1, Math.max(0, Math.round((t - AUDIO.offset) * AUDIO.fps)))] || 0; };
+/** seconds since the last event ≤ t in a sorted list (AUDIO.beats / AUDIO.onsets); Infinity before the first */
+function since(t, list) { if (!list || !list.length || t < list[0]) return Infinity;
+  let lo = 0, hi = list.length - 1; while (lo < hi) { const m = (lo + hi + 1) >> 1; if (list[m] <= t) lo = m; else hi = m - 1; }
+  return t - list[lo]; }
+/** a hit envelope: 1 on the event, decaying to 0 over `dur` seconds (use for beat pulses) */
+const hit = (t, list, dur = 0.25) => { const d = since(t, list); return d === Infinity ? 0 : Math.max(0, 1 - d / dur); };
 function fit() { const s = Math.min(innerWidth / STAGE_W, innerHeight / STAGE_H); frame.style.transform = s === 1 ? "" : `scale(${s})`; }
 addEventListener("resize", fit); fit();
 /* ================================================================ */
@@ -141,6 +154,7 @@ function play() { if (!playing) { playing = true; requestAnimationFrame(tick); }
 function pause() { playing = false; }
 window.DURATION = DURATION;
 window.render = render;
+window.SCENES = SCENES;                          // lets qa.mjs capture every scene's entry/middle/end
 window.seek = (t) => { pause(); clock = Math.min(Math.max(Number(t) || 0, 0), DURATION); render(clock); ui(); };
 addEventListener("keydown", (e) => {
   if (e.code === "Space") { e.preventDefault(); playing ? pause() : play(); }

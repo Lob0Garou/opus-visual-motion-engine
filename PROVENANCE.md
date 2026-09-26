@@ -158,7 +158,7 @@ Legenda nova: `[T]` = regra derivada de um defeito **reproduzido e detectado** p
 |---|---|---|
 | Descrição do frontmatter reescrita (480 chars) | o DSH trunca a descrição do catálogo em 500 (`catalogDescriptionMaxLength`); a antiga tinha ~560 e perdia os gatilhos | [T] doc `runtime/docs/subsystems/skills.md` |
 | §8/§9 (QA + crítica): `scripts/qa.mjs` obrigatório, com ramo para modelo com visão (contact sheet) e só-texto (report.json) | DeepSeek V4 Pro é só-texto; o loop visual antigo exigia ler PNGs | [T] |
-| §10 export: `scripts/export.mjs` (ffmpeg pipe, mp4/webm/gif, `--audio`) | o snippet antigo nomeava arquivos `f_0.25.png` e não montava vídeo | [T] 421 frames/14 s verificados com ffprobe |
+| §11 (na v1.0: §10) export: `scripts/export.mjs` (ffmpeg pipe, mp4/webm/gif, `--audio`) | o snippet antigo nomeava arquivos `f_0.25.png` e não montava vídeo | [T] 421 frames/14 s verificados com ffprobe |
 | §2 template `assets/composition-template.html` | modelos mais fracos reescreviam o motor com bugs; o esqueleto elimina classes inteiras de erro | [X] |
 | §3 draw-on exige `stroke-dasharray` | o exemplo original falhava nisto sem que a crítica humana visse | [T] check `dead-dash` |
 | §3 `t` em segundos; `seek()` para o relógio de playback | bug de geração 1 (timeline congelada) + mutação `clock` | [T] checks `frozen`, `determinism` |
@@ -174,4 +174,17 @@ Legenda nova: `[T]` = regra derivada de um defeito **reproduzido e detectado** p
 
 Verificado na v2: template passa (0 FAIL/0 WARN); 8/8 mutações reprovadas no check certo (exit 1); modo página numa página de propósito ruim (contraste, overflow mobile, 7 tells de IA detectados); export mp4 14 s/421 frames e mp4+áudio 8 s/241 frames + AAC (ffprobe).
 Não verificado na v2: Firefox/WebKit (só Chromium); `.webm`/`.gif` de saída; uma landing page real (só a página-teste sintética); a skill carregada de fato por uma sessão DSH (instalação adiada a pedido, para não contaminar o vídeo de controle).
+
+## v1.1 — ideias adaptadas de `prod-by-claude` (HyperFrames community skills, Apache-2.0)
+
+Nenhum código foi copiado; os padrões foram reimplementados. Fonte: https://github.com/heygen-com/hyperframes-community-skills/tree/master/skills/prod-by-claude
+
+| Mudança | Padrão de origem | Verificação |
+|---|---|---|
+| `audio-data.mjs`: áudio → dados (beats, onsets, rms/low por frame) lidos por `render(t)` | "the video is driven by Strudel's own note events" + loudness por frame em `build-data.mjs` | [T] 120 BPM sintético: 120,0 BPM, grid sem deriva em 60 s (erro máx. 6 ms); pulsos visuais no 1º frame após cada batida (≤28 ms) |
+| checagem de níveis (clipping = exit 1, pico > −1 dBFS, LUFS) | `record.mjs` "prints peak and RMS per 4 bars and warns on clipping" | [T] áudio saturado → 2.368 amostras clipadas, exit 1 |
+| capturas por cena (`window.SCENES`) e `--at` → `moments.png` | `build-data.mjs` imprime o comando de snapshot "with the times filled in" | [T] template: 6 frames de cena |
+| `data-qa-allow-overlap` | `data-layout-allow-overlap` / `-occlusion` do template deles | [T] mutação de colisão com o atributo → PASS; sem → FAIL |
+| checagem de fonte não carregada | "Tokens must sit exactly inside their boxes… If they drift, the font did not load" | [T] família inexistente → WARN `font` |
+| seção "Side effects and rights" | seções *Side effects* e *Rights* do SKILL.md deles | — |
 

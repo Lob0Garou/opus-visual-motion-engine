@@ -28,6 +28,7 @@ Before writing any code, read the references that match the deliverable. They ar
 | diagram, schematic, data viz | `references/visual-design.md` §4 |
 | framing / camera decisions | `references/cinematography.md` |
 | durations and easings | `references/animation-primitives.md` |
+| music or voice to sync | SKILL.md §10 + `references/video-generation.md` §6 |
 
 Worked examples live in `examples/*.md`. Read the one closest to the brief.
 
@@ -55,8 +56,9 @@ A scene without a card does not belong in the video.
 
 Copy `assets/composition-template.html` next to the deliverable and fill the EDIT blocks. Do not rewrite the ENGINE blocks. They already provide:
 - a 1920×1080 `#stage` (change `STAGE_W/H` for 1080×1920 or 1080×1080), fitted to any window;
-- `window.DURATION`, `window.seek(t)`, `window.render(t)`: the capture/export contract;
+- `window.DURATION`, `window.seek(t)`, `window.render(t)`, `window.SCENES`: the capture/export contract (QA captures every scene from `SCENES`);
 - `at()`, `ease.*`, `lerp`, `mulberry32` (seeded PRNG), and `layer()` for scene visibility plus EXIT;
+- audio helpers `audioAt(t, "rms"|"low")`, `since(t, list)`, `hit(t, list, dur)` that read `window.AUDIO` (§10) and return 0 without it;
 - a preview player (space, ←/→, Home/End) that turns off automatically under capture and reduced motion;
 - color tokens in the required 3 layers (light, `prefers-color-scheme` guarded, `[data-theme]`).
 
@@ -138,7 +140,11 @@ In DSH on Windows, run it with the `pwsh` tool using the same command. Options: 
 **Video mode** (auto when `DURATION` + `seek` exist) captures a frame every step and checks: forbidden APIs, determinism on out-of-order revisits, a frozen timeline, dead air, near-empty spans, an unsettled end frame, text collisions, text over other graphics, clipping, contrast, minimum type size, dash-offset lines that never draw, reduced-motion loops, console/page errors, and template tells.
 **Page mode** renders desktop 1440, mobile 390 and dark scheme, and checks the same layout rules plus mobile horizontal overflow.
 
-Outputs land in `qa-<name>/`: `report.md` (verdict and findings), `report.json` (per-frame ink coverage and change), `contact-sheet.png` (every frame on one image), `key_000..100.png`, and `frames/`.
+Outputs land in `qa-<name>/`: `report.md` (verdict and findings), `report.json` (per-frame ink coverage and change), `contact-sheet.png` (every frame on one image), `moments.png` (each scene's entry, middle and end, taken from `window.SCENES`), `key_000..100.png`, and `frames/`.
+
+- Pass the signature moment and any sync point explicitly: `--at 5.4,9.1`.
+- Deliberate layering (kinetic type stacked on purpose, a title over footage) goes inside an element with `data-qa-allow-overlap`. That skips the collision and text-over-graphics checks for that subtree only. Never use it to silence an accidental collision.
+- A `font` WARN means the first-choice family did not load and the text is in a fallback. Fix it before judging layout, because every width is wrong.
 
 Exit code 0 = no FAIL. **FAIL is blocking.** Every WARN is either fixed or justified in one line in your critique.
 
@@ -157,7 +163,22 @@ Exit code 0 = no FAIL. **FAIL is blocking.** Every WARN is either fixed or justi
 4. Fix → re-run `qa.mjs` → re-critique. Repeat until QA passes and the critique has no open item.
 5. Final question, answered honestly: **"Does this look intentionally designed, or merely generated?"** If "generated": name what is generic, revise the plan (§1), and rebuild. A first render is almost never the deliverable. Expect 2–3 generations.
 
-## 10. Export (when a video file is wanted)
+## 10. Audio sync (when there is music or voice)
+
+Never guess timing by ear. Turn the audio into data, and let `render(t)` read it:
+
+```bash
+node "$SKILL/scripts/audio-data.mjs" music.mp3 --inject composition.html   # writes window.AUDIO into the HTML
+```
+
+- `AUDIO.beats` (an evenly spaced grid at the estimated tempo), `AUDIO.onsets` (hits, notes, syllables), and per-frame `AUDIO.rms` / `AUDIO.low` (0..1; `low` is the <150 Hz kick/bass band).
+- Drive motion with the template helpers: `hit(t, AUDIO.beats, 0.2)` for a beat pulse (EMPHASIS), `audioAt(t, "low")` for kick-reactive scale, `since(t, AUDIO.onsets)` for per-hit reveals. Put scene cuts on beats: pick scene starts from `AUDIO.beats`.
+- Sync is frame-exact by construction: a pulse lands on the first frame at or after its beat (≤1 frame, ≤33 ms at 30 fps). If the audio starts later than t=0, pass `--offset <s>`.
+- Levels are checked before anyone listens. Clipped samples exit 1. A sample peak above −1 dBFS warns, because AAC encoding will clip it. Loudness outside −18..−12 LUFS is reported (platforms normalize to about −14).
+- `--bpm` overrides the tempo estimate. Check the printed BPM against the track's known tempo. Estimates can land on half or double tempo, and the tempo is detected only for music with clear hits.
+- Mux the same file at export with `--audio`.
+
+## 11. Export (when a video file is wanted)
 
 ```bash
 node "$SKILL/scripts/export.mjs" path/to/composition.html --out out.mp4 --fps 30
@@ -165,6 +186,14 @@ node "$SKILL/scripts/export.mjs" path/to/composition.html --out out.mp4 --fps 30
 
 It seeks every frame at a fixed dt and pipes the frames to ffmpeg. The output format follows the extension (`.mp4` H.264 yuv420p faststart, `.webm` VP9, `.gif` palette). Options: `--audio track.mp3` (muxed, `-shortest`), `--from/--to`, `--crf`. Without ffmpeg it writes a PNG sequence and prints the assemble command. Verify the reported frame count and duration.
 
-## 11. Delivery
+## 12. Delivery
 
 Deliver: the HTML (and the MP4 if requested), the plan, the QA verdict line, and the critique answers. State plainly what was **not** verified (e.g. "no audio", "Firefox not tested"). Never claim a check you did not run.
+
+## 13. Side effects and rights
+
+- **Files:** `qa.mjs` writes only `qa-<name>/` next to the HTML; `export.mjs` writes the output file (or a `-frames/` folder); `audio-data.mjs --inject` rewrites one `<script id="audio-data">` block in the HTML.
+- **Network:** none from the scripts, which run a local headless Chromium. The composition itself may load pinned CDN libraries or fonts when it opens. The first setup runs `npm install` and `npx playwright install chromium` (about 150 MB).
+- **Audio:** processed offline with ffmpeg; nothing plays out loud.
+- **Rights:** fonts must be licensed for embedding (OFL / Google Fonts are safe). Music, voice, footage and logos must be the user's own or cleared. Say which assets you used, and where they came from, in the delivery.
+
